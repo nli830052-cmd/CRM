@@ -221,42 +221,112 @@ def log_call(call: schemas.CallCreate, db: Session = Depends(get_db)):
     db.refresh(db_call)
     return db_call
 
+def ensure_contact_id(db: Session, contact_id: Optional[str], phone_number: Optional[str]):
+    """Helper to resolve or create a contact by phone if ID is missing."""
+    if contact_id: return contact_id
+    if not phone_number: return None
+    
+    clean_phone = "".join(filter(str.isdigit, phone_number))
+    if not clean_phone: return None
+    
+    contact = db.query(models.Contact).filter(models.Contact.phone_number == clean_phone).first()
+    if not contact:
+        contact = models.Contact(
+            name=f"자동생성({clean_phone[-4:]})",
+            phone_number=clean_phone,
+            organization="알 수 없음"
+        )
+        db.add(contact)
+        db.commit()
+        db.refresh(contact)
+    return contact.id
+
 @app.post("/calls/bulk/")
 def log_calls_bulk(calls: List[schemas.CallCreate], db: Session = Depends(get_db)):
-    """Bulk create calls with conflict handling"""
+    """Bulk create calls with automatic contact resolution"""
     if not calls: return {"status": "empty"}
-    values = [c.dict() for c in calls]
-    stmt = pg_insert(models.Call).values(values)
+    
+    processed_calls = []
+    for c in calls:
+        cid = ensure_contact_id(db, c.contact_id, c.phone_number)
+        if cid:
+            call_dict = c.dict()
+            call_dict['contact_id'] = cid
+            call_dict.pop('phone_number', None)
+            processed_calls.append(call_dict)
+            
+    if not processed_calls: return {"status": "no_valid_contacts"}
+
+    stmt = pg_insert(models.Call).values(processed_calls)
     stmt = stmt.on_conflict_do_nothing(index_elements=['contact_id', 'timestamp'])
     db.execute(stmt)
     db.commit()
-    return {"status": "success", "count": len(calls)}
+    return {"status": "success", "count": len(processed_calls)}
 
 # --- Message Endpoints ---
 @app.get("/messages/{contact_id}", response_model=List[schemas.Message])
 def get_messages(contact_id: str, db: Session = Depends(get_db)):
     return db.query(models.Message).filter(models.Message.contact_id == contact_id).all()
 
-@app.post("/messages/", response_model=schemas.Message)
-def log_message(message: schemas.MessageCreate, db: Session = Depends(get_db)):
-    db_message = models.Message(**message.dict())
-    db.add(db_message)
-    db.commit()
-    db.refresh(db_message)
-    return db_message
-
 @app.post("/messages/bulk/")
 def log_messages_bulk(messages: List[schemas.MessageCreate], db: Session = Depends(get_db)):
-    """Bulk create messages with conflict handling"""
+    """Bulk create messages with automatic contact resolution"""
     if not messages: return {"status": "empty"}
-    values = [m.dict() for m in messages]
-    stmt = pg_insert(models.Message).values(values)
+    
+    processed_msgs = []
+    for m in messages:
+        cid = ensure_contact_id(db, m.contact_id, m.phone_number)
+        if cid:
+            msg_dict = m.dict()
+            msg_dict['contact_id'] = cid
+            msg_dict.pop('phone_number', None)
+            processed_msgs.append(msg_dict)
+            
+    if not processed_msgs: return {"status": "no_valid_contacts"}
+
+    stmt = pg_insert(models.Message).values(processed_msgs)
     stmt = stmt.on_conflict_do_nothing(index_elements=['contact_id', 'timestamp', 'content'])
     db.execute(stmt)
     db.commit()
-    return {"status": "success", "count": len(messages)}
+    return {"status": "success", "count": len(processed_msgs)}
 
 # --- Timeline Endpoint ---
+
+@app.get("/timeline/all/")
+def get_global_timeline(limit: int = 150, db: Session = Depends(get_db)):
+    """Unified timeline of the latest interactions across all contacts (like a phone app's recent history)."""
+    # 1. Fetch latest raw records
+    calls = db.query(models.Call, models.Contact.name, models.Contact.phone_number) \
+              .join(models.Contact, models.Call.contact_id == models.Contact.id) \
+              .order_by(models.Call.timestamp.desc()).limit(limit).all()
+              
+    messages = db.query(models.Message, models.Contact.name, models.Contact.phone_number) \
+                 .join(models.Contact, models.Message.contact_id == models.Contact.id) \
+                 .order_by(models.Message.timestamp.desc()).limit(limit).all()
+    
+    # 2. Merge and sort
+    combined = []
+    for c, name, phone in calls:
+        combined.append({
+            "type": "call",
+            "contact_id": c.contact_id,
+            "name": name,
+            "phone_number": phone,
+            "timestamp": c.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "data": { "direction": c.direction, "duration": c.duration }
+        })
+    for m, name, phone in messages:
+        combined.append({
+            "type": "message",
+            "contact_id": m.contact_id,
+            "name": name,
+            "phone_number": phone,
+            "timestamp": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "data": { "direction": m.direction, "content": m.content }
+        })
+        
+    combined.sort(key=lambda x: x["timestamp"], reverse=True)
+    return combined[:limit]
 
 @app.get("/timeline/{contact_id}")
 def get_timeline(contact_id: str, db: Session = Depends(get_db)):

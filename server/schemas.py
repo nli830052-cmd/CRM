@@ -18,7 +18,8 @@ class Contact(ContactBase):
         from_attributes = True
 
 class CallBase(BaseModel):
-    contact_id: str
+    contact_id: Optional[str] = None
+    phone_number: Optional[str] = None
     direction: Optional[str] = "OUT"
     duration: int
     timestamp: datetime
@@ -32,7 +33,8 @@ class Call(CallBase):
         from_attributes = True
 
 class MessageBase(BaseModel):
-    contact_id: str
+    contact_id: Optional[str] = None
+    phone_number: Optional[str] = None
     content: str
     direction: str
     timestamp: datetime

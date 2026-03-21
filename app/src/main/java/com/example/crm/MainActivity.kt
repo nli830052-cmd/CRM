@@ -58,6 +58,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.ui.viewinterop.AndroidView
 
 // Helper Data Class for SMS
@@ -103,6 +105,7 @@ class MainActivity : ComponentActivity() {
         var screenState by remember { mutableStateOf("Dashboard") }
         var selectedContactId by remember { mutableStateOf("") }
         var contactStats by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+        var globalTimeline by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
         var searchQuery by remember { mutableStateOf("") }
@@ -113,12 +116,16 @@ class MainActivity : ComponentActivity() {
         // Fetch initial stats when dashboard opens
         LaunchedEffect(Unit) {
             try {
-                val response = RetrofitClient.apiService.getContactsStats()
-                if (response.isSuccessful) {
-                    contactStats = (response.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
+                scope.launch {
+                    val resStats = RetrofitClient.apiService.getContactsStats()
+                    if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
+                }
+                scope.launch {
+                    val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                    if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
                 }
             } catch (e: Exception) {
-                Log.e("StatError", "Initial load failed: ${e.message}")
+                Log.e("LoadError", "Initial load failed: ${e.message}")
             }
         }
 
@@ -188,10 +195,16 @@ class MainActivity : ComponentActivity() {
                                                 attemptSyncAll { loading, progress ->
                                                     isSyncing = loading
                                                     if (progress != null) syncProgress = progress
-                                                    if (!loading) { // Reload stats after sync completes
+                                                    if (!loading) { // Reload everything after sync completes
                                                         lifecycleScope.launch {
-                                                            val res = RetrofitClient.apiService.getContactsStats()
-                                                            if (res.isSuccessful) contactStats = (res.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
+                                                            scope.launch {
+                                                                val resStats = RetrofitClient.apiService.getContactsStats()
+                                                                if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
+                                                            }
+                                                            scope.launch {
+                                                                val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                                                                if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -223,7 +236,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                if (contactStats.isEmpty() && !isSyncing) {
+                                if (globalTimeline.isEmpty() && !isSyncing) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(64.dp), 
@@ -234,11 +247,11 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else {
                                     LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
-                                        items(contactStats) { item ->
-                                            ContactDashboardCard(
+                                        items(globalTimeline) { item ->
+                                            TimelineItemCard(
                                                 item = item,
                                                 onClick = { 
-                                                    selectedContactId = item["id"]?.toString() ?: ""
+                                                    selectedContactId = item["contact_id"]?.toString() ?: ""
                                                     screenState = "Detail"
                                                 }
                                             )
@@ -281,39 +294,66 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun ContactDashboardCard(item: Map<String, Any>, onClick: () -> Unit) {
+    fun TimelineItemCard(item: Map<String, Any>, onClick: () -> Unit) {
+        val type = item["type"]?.toString() ?: "call"
+        val data = item["data"] as? Map<String, Any> ?: emptyMap()
+        val timestamp = item["timestamp"]?.toString() ?: ""
+        
         Card(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clickable { onClick() },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable { onClick() },
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
             shape = MaterialTheme.shapes.medium
         ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(text = item["name"]?.toString() ?: "NoName", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(text = item["organization"]?.toString() ?: "소속 없음", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = normalizePhone(item["phone_number"]?.toString() ?: "-"), style = MaterialTheme.typography.bodyMedium)
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    val freq = (item["frequency"] as? Number)?.toInt() ?: 0
-                    Surface(
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        shape = MaterialTheme.shapes.extraSmall,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    ) {
-                        Text(
-                            text = "${freq}회 소통", 
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
+            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 1. Icon (Call vs Message)
+                Surface(
+                    color = if (type == "call") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    shape = CircleShape,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (type == "call") Icons.Default.Call else Icons.Default.Email,
+                            contentDescription = null,
+                            tint = if (type == "call") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                    Text(text = item["last_contact"]?.toString()?.substringBefore(" ") ?: "N/A", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
-
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp), tint = Color.LightGray)
+                
+                Spacer(Modifier.width(12.dp))
+                
+                // 2. Main Content
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = item["name"]?.toString() ?: "Unknown", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val dir = data["direction"]?.toString() ?: ""
+                        val dirText = if (dir == "IN" || dir == "INBOX") "수신" else "발신"
+                        val dirColor = if (dir == "IN" || dir == "INBOX") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        
+                        Text(text = dirText, style = MaterialTheme.typography.labelSmall, color = dirColor, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(6.dp))
+                        
+                        val detailText = if (type == "call") {
+                            val dur = (data["duration"] as? Number)?.toInt() ?: 0
+                            "${dur}초 통화"
+                        } else {
+                            data["content"]?.toString()?.take(20)?.plus("...") ?: ""
+                        }
+                        Text(text = detailText, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
+                    }
+                }
+                
+                // 3. Timestamp
+                Column(horizontalAlignment = Alignment.End) {
+                    val timeOnly = if (timestamp.length > 11) timestamp.substring(11, 16) else ""
+                    val dateOnly = if (timestamp.length > 10) timestamp.substring(5, 10) else ""
+                    
+                    Text(text = timeOnly, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(text = dateOnly, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                }
             }
         }
     }
@@ -362,11 +402,10 @@ class MainActivity : ComponentActivity() {
                         }
                         return@withContext
                     }
-                    val contactStats = statsResponse.body() ?: emptyList()
-                    val phoneToData = contactStats.associateBy(
+                    var phoneToData = contactStats.associateBy(
                         { normalizePhone(it["phone_number"]?.toString() ?: "") },
                         { it }
-                    )
+                    ).toMutableMap()
 
                     // 2. Identify and Sync NEW Contacts only
                     withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 검색 중...") }
@@ -380,6 +419,15 @@ class MainActivity : ComponentActivity() {
                         newContacts.chunked(100).forEach { chunk ->
                             RetrofitClient.apiService.createContactsBulk(chunk)
                         }
+                        // Refresh phoneToData after creating new contacts so we have their IDs for calls/messages
+                        val refreshStats = RetrofitClient.apiService.getContactsStats()
+                        if (refreshStats.isSuccessful) {
+                            val updatedStats = refreshStats.body() ?: emptyList()
+                            phoneToData = updatedStats.associateBy(
+                                { normalizePhone(it["phone_number"]?.toString() ?: "") },
+                                { it }
+                            ).toMutableMap()
+                        }
                     }
 
                     // 3. Identify and Sync NEW Calls only
@@ -391,19 +439,19 @@ class MainActivity : ComponentActivity() {
                         val localPhone = normalizePhone(call.first)
                         val contactData = phoneToData[localPhone]
                         val contactId = contactData?.get("id")?.toString()
-                        if (contactId != null) {
-                            val lastCallOnServer = contactData["last_call_at"]?.toString()
-                            val localCallAt = serverDateFormat.format(Date(call.third))
-                            
-                            // Only send if NEWER than server's last recorded call
-                            if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
-                                newCallRecords.add(CallRecord(
-                                    contact_id = contactId,
-                                    direction = call.fourth,
-                                    duration = call.second,
-                                    timestamp = localCallAt
-                                ))
-                            }
+                        
+                        val lastCallOnServer = contactData?.get("last_call_at")?.toString()
+                        val localCallAt = serverDateFormat.format(Date(call.third))
+                        
+                        // Sync if it's NEWER than server's last record, or if contact is unknown
+                        if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
+                            newCallRecords.add(CallRecord(
+                                contact_id = contactId,
+                                phone_number = call.first, // Send phone for unknown contact resolution
+                                direction = call.fourth,
+                                duration = call.second,
+                                timestamp = localCallAt
+                            ))
                         }
                     }
                     if (newCallRecords.isNotEmpty()) {
@@ -422,19 +470,18 @@ class MainActivity : ComponentActivity() {
                         val localPhone = normalizePhone(msg.address)
                         val contactData = phoneToData[localPhone]
                         val contactId = contactData?.get("id")?.toString()
-                        if (contactId != null) {
-                            val lastMsgOnServer = contactData["last_message_at"]?.toString()
-                            val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
+                        
+                        val lastMsgOnServer = contactData?.get("last_message_at")?.toString()
+                        val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
 
-                            // Only send if NEWER than server's last recorded message
-                            if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
-                                newMsgRecords.add(MessageRecord(
-                                    contact_id = contactId,
-                                    content = msg.body,
-                                    direction = msg.direction,
-                                    timestamp = localMsgAt
-                                ))
-                            }
+                        if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
+                            newMsgRecords.add(MessageRecord(
+                                contact_id = contactId,
+                                phone_number = msg.address, // Send phone for unknown contact resolution
+                                content = msg.body,
+                                direction = msg.direction,
+                                timestamp = localMsgAt
+                            ))
                         }
                     }
                     if (newMsgRecords.isNotEmpty()) {

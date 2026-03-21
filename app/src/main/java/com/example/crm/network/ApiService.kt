@@ -22,6 +22,9 @@ interface ApiService {
     @GET("contacts/stats/")
     suspend fun getContactsStats(): Response<List<Map<String, Any>>>
 
+    @GET("timeline/all/")
+    suspend fun getGlobalTimeline(): Response<List<Map<String, Any>>>
+
     @GET("contacts/phone/{phone_number}")
     suspend fun getContactByPhone(@Path("phone_number") phone: String): Response<Contact>
 
