@@ -54,6 +54,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.viewinterop.AndroidView
 
 // Helper Data Class for SMS
@@ -102,6 +105,9 @@ class MainActivity : ComponentActivity() {
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
         var searchQuery by remember { mutableStateOf("") }
+        
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
 
         // Fetch initial stats when dashboard opens
         LaunchedEffect(Unit) {
@@ -115,100 +121,135 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            when (screenState) {
-                "Dashboard" -> {
-                    Scaffold(
-                        topBar = {
-                            TopAppBar(
-                                title = { 
-                                    Column {
-                                        Text("SalesMind AI CRM", style = MaterialTheme.typography.titleLarge)
-                                        if (isSyncing) Text(syncProgress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                },
-                                actions = {
-                                    IconButton(
-                                        onClick = { 
-                                            attemptSyncAll { loading, progress ->
-                                                isSyncing = loading
-                                                if (progress != null) syncProgress = progress
-                                                if (!loading) { // Reload stats after sync completes
-                                                    lifecycleScope.launch {
-                                                        val res = RetrofitClient.apiService.getContactsStats()
-                                                        if (res.isSuccessful) contactStats = res.body() ?: emptyList()
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        enabled = !isSyncing
-                                    ) {
-                                        if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                        else Icon(Icons.Default.Refresh, contentDescription = "Sync All")
-                                    }
-                                },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                )
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(modifier = Modifier.width(320.dp)) {
+                    Spacer(Modifier.height(24.dp))
+                    Text("연락처 찾기", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        placeholder = { Text("이름 또는 번호 검색") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        shape = MaterialTheme.shapes.medium,
+                        singleLine = true
+                    )
+                    
+                    val filteredStats = if (searchQuery.isEmpty()) {
+                        contactStats
+                    } else {
+                        contactStats.filter { 
+                            (it["name"]?.toString()?.contains(searchQuery, true) ?: false) || 
+                            (it["phone_number"]?.toString()?.contains(searchQuery) ?: false)
+                        }
+                    }
+
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) {
+                        items(filteredStats) { item ->
+                            ListItem(
+                                headlineContent = { Text(item["name"]?.toString() ?: "?", fontWeight = FontWeight.Bold) },
+                                supportingContent = { Text(item["organization"]?.toString() ?: "소속없음") },
+                                leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
+                                modifier = Modifier.clickable {
+                                    selectedContactId = item["id"]?.toString() ?: ""
+                                    screenState = "Detail"
+                                    scope.launch { drawerState.close() }
+                                }
                             )
                         }
-                    ) { padding ->
-                        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-                            // 1. Modern Search Bar
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                placeholder = { Text("연락처 검색 (이름 또는 번호)") },
-                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                shape = MaterialTheme.shapes.extraLarge,
-                                singleLine = true,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                                )
-                            )
-
-                            // 2. Filtered Contact List
-                            val filteredStats = if (searchQuery.isEmpty()) {
-                                contactStats
-                            } else {
-                                contactStats.filter { 
-                                    (it["name"]?.toString()?.contains(searchQuery, true) ?: false) || 
-                                    (it["phone_number"]?.toString()?.contains(searchQuery) ?: false)
-                                }
-                            }
-
-                            if (filteredStats.isEmpty() && !isSyncing) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(64.dp), 
-                                             tint = MaterialTheme.colorScheme.outline)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("검색 결과가 없거나 데이터가 비어있습니다.", color = MaterialTheme.colorScheme.outline)
-                                        TextButton(onClick = { /* Could trigger sync */ }) { Text("데이터 동기화하기") }
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    contentPadding = PaddingValues(bottom = 80.dp)
-                                ) {
-                                    items(filteredStats) { item ->
-                                        ContactDashboardCard(
-                                            item = item,
+                    }
+                }
+            }
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                when (screenState) {
+                    "Dashboard" -> {
+                        Scaffold(
+                            topBar = {
+                                TopAppBar(
+                                    title = { 
+                                        Column {
+                                            Text("SalesMind AI CRM", style = MaterialTheme.typography.titleLarge)
+                                            if (isSyncing) Text(syncProgress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    },
+                                    navigationIcon = {
+                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                                        }
+                                    },
+                                    actions = {
+                                        IconButton(
                                             onClick = { 
-                                                selectedContactId = item["id"]?.toString() ?: ""
-                                                screenState = "Detail"
-                                            }
-                                        )
+                                                attemptSyncAll { loading, progress ->
+                                                    isSyncing = loading
+                                                    if (progress != null) syncProgress = progress
+                                                    if (!loading) { // Reload stats after sync completes
+                                                        lifecycleScope.launch {
+                                                            val res = RetrofitClient.apiService.getContactsStats()
+                                                            if (res.isSuccessful) contactStats = res.body() ?: emptyList()
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            enabled = !isSyncing
+                                        ) {
+                                            if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                            else Icon(Icons.Default.Refresh, contentDescription = "Sync All")
+                                        }
+                                    },
+                                    colors = TopAppBarDefaults.topAppBarColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
+                        ) { padding ->
+                            Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "최근 영업 활동 기록", 
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                if (contactStats.isEmpty() && !isSyncing) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(64.dp), 
+                                                 tint = MaterialTheme.colorScheme.outline)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text("기록이 없습니다. 동기화를 진행해 주세요.", color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
+                                        items(contactStats) { item ->
+                                            ContactDashboardCard(
+                                                item = item,
+                                                onClick = { 
+                                                    selectedContactId = item["id"]?.toString() ?: ""
+                                                    screenState = "Detail"
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                "Detail" -> {
-                    AnalysisWebView(contactId = selectedContactId) { screenState = "Dashboard" }
+                    "Detail" -> {
+                        AnalysisWebView(contactId = selectedContactId) { screenState = "Dashboard" }
+                    }
                 }
             }
         }
