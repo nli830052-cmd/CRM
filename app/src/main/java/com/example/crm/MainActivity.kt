@@ -50,6 +50,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -205,6 +206,30 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
+    fun AnalysisWebView(contactId: String, onBack: () -> Unit) {
+        val url = "https://crm-f2v6.onrender.com/?id=$contactId"
+        
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(10.dp)) {
+                IconButton(onClick = onBack) { 
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") 
+                }
+                Spacer(modifier = Modifier.width(15.dp))
+                Text("AI 대화 이력 분석", style = MaterialTheme.typography.titleLarge)
+            }
+            
+            AndroidView(factory = { context ->
+                WebView(context).apply {
+                    webViewClient = WebViewClient()
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    loadUrl(url)
+                }
+            }, modifier = Modifier.fillMaxSize())
+        }
+    }
+
+    @Composable
     fun ContactDashboardCard(item: Map<String, Any>, onClick: () -> Unit) {
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clickable { onClick() },
@@ -227,7 +252,7 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                Column(modifier = Modifier.weight(1).padding(end = 8.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(text = item["name"]?.toString() ?: "NoName", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(text = item["organization"]?.toString() ?: "소속 없음", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))

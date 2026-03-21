@@ -60,6 +60,7 @@ class AISummary(AISummaryBase):
 class RecordingBase(BaseModel):
     contact_id: str
     file_path: str
+    original_filename: Optional[str] = None
     summary: Optional[str] = None
     transcription: Optional[str] = None
 

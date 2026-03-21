@@ -141,6 +141,13 @@ def create_contact(contact: schemas.ContactCreate, db: Session = Depends(get_db)
     db.refresh(db_contact)
     return db_contact
 
+@app.get("/contacts/{contact_id}", response_model=schemas.Contact)
+def get_contact(contact_id: str, db: Session = Depends(get_db)):
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return contact
+
 @app.get("/contacts/", response_model=List[schemas.Contact])
 def get_contacts(q: Optional[str] = None, skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     query = db.query(models.Contact)
@@ -268,19 +275,27 @@ def get_timeline(contact_id: str, db: Session = Depends(get_db)):
 
 @app.get("/ai-summary/{contact_id}")
 async def get_ai_summary(contact_id: str, db: Session = Depends(get_db)):
-    # 1. Fetch entire historical data for the contact
+    # 1. Fetch entire historical data for the contact including recordings
     calls = db.query(models.Call).filter(models.Call.contact_id == contact_id).all()
     messages = db.query(models.Message).filter(models.Message.contact_id == contact_id).all()
+    recordings = db.query(models.Recording).filter(models.Recording.contact_id == contact_id).all()
     
     # 2. Build history text for analysis
     history_entries = []
     for c in calls:
-        history_entries.append(f"[Call] {c.timestamp} (Duration: {c.duration}s)")
+        history_entries.append(f"[CallLog] {c.timestamp} ({'수신' if c.direction=='IN' else '발신'})")
     for m in messages:
-        history_entries.append(f"[{m.direction}] {m.timestamp}: {m.content}")
+        history_entries.append(f"[{'SMS-수신' if m.direction=='INBOX' else 'SMS-발신'}] {m.timestamp}: {m.content}")
+    for r in recordings:
+        if r.summary and "분석 진행 중" not in r.summary:
+            history_entries.append(f"[CallAnalysis] {r.timestamp}: {r.summary}")
     
-    # Sort history entries by timestamp string (simple sort)
+    # Sort history entries by timestamp (simple sort)
     history_entries.sort()
+    
+    if not history_entries:
+        return {"summary": "아직 대화 기록이 충분하지 않아 분석이 불가능합니다. 동기화를 먼저 진행해 주세요.", "next_action": "기록 대기 중", "status": "empty"}
+
     history_text = "\n".join(history_entries)
     
     # 3. Request Gemini to analyze the interaction context
