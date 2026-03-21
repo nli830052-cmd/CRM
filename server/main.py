@@ -293,8 +293,8 @@ def log_messages_bulk(messages: List[schemas.MessageCreate], db: Session = Depen
 # --- Timeline Endpoint ---
 
 @app.get("/timeline/all/")
-def get_global_timeline(limit: int = 150, db: Session = Depends(get_db)):
-    """Unified timeline of the latest interactions across all contacts (like a phone app's recent history)."""
+def get_global_timeline(limit: int = 200, db: Session = Depends(get_db)):
+    """Unified timeline of all interactions: Calls, Messages, and AI-Analyzed Recordings."""
     # 1. Fetch latest raw records
     calls = db.query(models.Call, models.Contact.name, models.Contact.phone_number) \
               .join(models.Contact, models.Call.contact_id == models.Contact.id) \
@@ -303,6 +303,10 @@ def get_global_timeline(limit: int = 150, db: Session = Depends(get_db)):
     messages = db.query(models.Message, models.Contact.name, models.Contact.phone_number) \
                  .join(models.Contact, models.Message.contact_id == models.Contact.id) \
                  .order_by(models.Message.timestamp.desc()).limit(limit).all()
+
+    recordings = db.query(models.Recording, models.Contact.name, models.Contact.phone_number) \
+                   .join(models.Contact, models.Recording.contact_id == models.Contact.id) \
+                   .order_by(models.Recording.timestamp.desc()).limit(limit).all()
     
     # 2. Merge and sort
     combined = []
@@ -323,6 +327,15 @@ def get_global_timeline(limit: int = 150, db: Session = Depends(get_db)):
             "phone_number": phone,
             "timestamp": m.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
             "data": { "direction": m.direction, "content": m.content }
+        })
+    for r, name, phone in recordings:
+        combined.append({
+            "type": "recording",
+            "contact_id": r.contact_id,
+            "name": name,
+            "phone_number": phone,
+            "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "data": { "summary": r.summary, "file_path": r.file_path }
         })
         
     combined.sort(key=lambda x: x["timestamp"], reverse=True)

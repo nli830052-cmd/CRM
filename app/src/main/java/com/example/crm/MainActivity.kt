@@ -61,6 +61,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.viewinterop.AndroidView
 
 // Helper Data Class for SMS
@@ -135,8 +136,16 @@ class MainActivity : ComponentActivity() {
             gesturesEnabled = false,
             drawerContent = {
                 ModalDrawerSheet(modifier = Modifier.width(320.dp)) {
-                    Spacer(Modifier.height(24.dp))
-                    Text("연락처 찾기", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("연락처 찾기", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { scope.launch { drawerState.close() } }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Drawer")
+                        }
+                    }
                     
                     OutlinedTextField(
                         value = searchQuery,
@@ -313,17 +322,33 @@ class MainActivity : ComponentActivity() {
             shape = MaterialTheme.shapes.medium
         ) {
             Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                // 1. Icon (Call vs Message)
+                // 1. Icon (Call vs Message vs Recording)
+                val icon = when(type) {
+                    "call" -> Icons.Default.Call
+                    "message" -> Icons.Default.Email
+                    else -> Icons.Default.Notifications // Mic/Recording
+                }
+                val iconContainerColor = when(type) {
+                    "call" -> MaterialTheme.colorScheme.primaryContainer
+                    "message" -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.tertiaryContainer 
+                }
+                val iconColor = when(type) {
+                    "call" -> MaterialTheme.colorScheme.onPrimaryContainer
+                    "message" -> MaterialTheme.colorScheme.onSecondaryContainer
+                    else -> MaterialTheme.colorScheme.onTertiaryContainer
+                }
+
                 Surface(
-                    color = if (type == "call") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    color = iconContainerColor,
                     shape = CircleShape,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (type == "call") Icons.Default.Call else Icons.Default.Email,
+                            imageVector = icon,
                             contentDescription = null,
-                            tint = if (type == "call") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                            tint = iconColor,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -337,17 +362,19 @@ class MainActivity : ComponentActivity() {
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val dir = data["direction"]?.toString() ?: ""
-                        val dirText = if (dir == "IN" || dir == "INBOX") "수신" else "발신"
-                        val dirColor = if (dir == "IN" || dir == "INBOX") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                        
-                        Text(text = dirText, style = MaterialTheme.typography.labelSmall, color = dirColor, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(6.dp))
-                        
-                        val detailText = if (type == "call") {
-                            val dur = (data["duration"] as? Number)?.toInt() ?: 0
-                            "${dur}초 통화"
-                        } else {
-                            data["content"]?.toString()?.take(20)?.plus("...") ?: ""
+                        val detailText = when(type) {
+                            "call" -> {
+                                val dur = (data["duration"] as? Number)?.toInt() ?: 0
+                                val arrow = if (dir == "IN") "↙ " else "↗ "
+                                arrow + "${dur}초 통화"
+                            }
+                            "message" -> {
+                                val arrow = if (dir == "INBOX") "↙ " else "↗ "
+                                arrow + (data["content"]?.toString()?.take(20)?.plus("...") ?: "")
+                            }
+                            else -> {
+                                "🎙 AI 분석 리포트 요약"
+                            }
                         }
                         Text(text = detailText, style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1)
                     }
