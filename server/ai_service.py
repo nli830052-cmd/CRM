@@ -24,9 +24,15 @@ async def analyze_history(history_text: str):
         }
 
     prompt = f"""
-    당신은 전문적인 영업 관리자이자 데이터 분석가입니다. 
-    아래 고객과의 타임라인을 분석하여 요약, 상태, 다음 추천 행동을 도출하세요.
-    데이터: {history_text}
+    당신은 숙련된 영업 관리자입니다. 아래 고객과의 대화 이력을 분석하세요.
+    [데이터]: {history_text}
+    [요구사항]:
+    1. summary 필드는 반드시 다음 구조를 포함하세요 (줄바꿈 포함): 
+       [초기 접점]: ...
+       [진행 현황]: ...
+       [최근 이슈]: ...
+    2. next_action 필드는 여러 단계가 있을 경우 1., 2. 처럼 숫자를 붙여 한 줄씩 작성하세요.
+    3. 모든 내용은 한국어로 작성하세요.
     형식: JSON {{"summary": "...", "status": "...", "next_action": "..."}}
     """
     
@@ -67,7 +73,11 @@ async def analyze_call_audio(file_path: str):
 
         # 2. Gemini에 파일 업로드 및 분석
         sample_file = genai.upload_file(path=path_to_upload, display_name="Call Recording")
-        prompt = "이 통화를 전사하고 요약하고 할일을 정리해줘. 형식: [전사]...[요약]...[할일]..."
+        prompt = """이 통화 녹음을 분석하여 다음 형식을 엄격히 지켜 답변하세요:
+        [전사] (중요: 각 문장은 반드시 '상대방:' 또는 '나:'로 시작하는 대화체로 한 줄씩 작성하세요. 예: 상대방: 안녕하세요? 나: 네 반갑습니다.)
+        [요약] (전체 통화의 핵심 내용)
+        [할일] (이후 조치해야 할 사항)
+        """
         response = model.generate_content([prompt, sample_file])
         
         result = response.text

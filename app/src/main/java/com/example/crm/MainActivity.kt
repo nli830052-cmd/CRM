@@ -61,6 +61,15 @@ data class SmsItem(val address: String, val body: String, val direction: String,
 
 class MainActivity : ComponentActivity() {
 
+    private fun normalizePhone(number: String): String {
+        val clean = number.replace(Regex("[^0-9]"), "")
+        return when {
+            clean.startsWith("8210") -> "010" + clean.substring(4)
+            clean.startsWith("10") && clean.length >= 10 -> "0" + clean
+            else -> clean
+        }
+    }
+
     private var pendingSyncAction: (() -> Unit)? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -238,25 +247,11 @@ class MainActivity : ComponentActivity() {
             shape = MaterialTheme.shapes.medium
         ) {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                // Circular Placeholder or Icon based on name
-                Box(
-                    modifier = Modifier.size(50.dp).background(MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.extraLarge),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = (item["name"]?.toString()?.firstOrNull() ?: "?").toString(),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(text = item["name"]?.toString() ?: "NoName", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(text = item["organization"]?.toString() ?: "소속 없음", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(text = item["phone_number"]?.toString() ?: "-", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = normalizePhone(item["phone_number"]?.toString() ?: "-"), style = MaterialTheme.typography.bodyMedium)
                 }
 
                 Column(horizontalAlignment = Alignment.End) {
@@ -327,14 +322,16 @@ class MainActivity : ComponentActivity() {
                     }
                     val contactStats = statsResponse.body() ?: emptyList()
                     val phoneToData = contactStats.associateBy(
-                        { it["phone_number"]?.toString()?.replace(Regex("[^0-9]"), "") ?: "" },
+                        { normalizePhone(it["phone_number"]?.toString() ?: "") },
                         { it }
                     )
 
                     // 2. Identify and Sync NEW Contacts only
                     withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 검색 중...") }
                     val localContacts = getAllContacts()
-                    val newContacts = localContacts.filter { phoneToData[it.phone_number] == null }
+                    val newContacts = localContacts.filter { 
+                        phoneToData[normalizePhone(it.phone_number)] == null 
+                    }.map { it.copy(phone_number = normalizePhone(it.phone_number)) }
                     
                     if (newContacts.isNotEmpty()) {
                         withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 ${newContacts.size}건 동기화 중...") }
@@ -349,7 +346,8 @@ class MainActivity : ComponentActivity() {
                     val newCallRecords = mutableListOf<CallRecord>()
                     
                     allCalls.forEach { call ->
-                        val contactData = phoneToData[call.first.replace(Regex("[^0-9]"), "")]
+                        val localPhone = normalizePhone(call.first)
+                        val contactData = phoneToData[localPhone]
                         val contactId = contactData?.get("id")?.toString()
                         if (contactId != null) {
                             val lastCallOnServer = contactData["last_call_at"]?.toString()
@@ -379,7 +377,8 @@ class MainActivity : ComponentActivity() {
                     val newMsgRecords = mutableListOf<MessageRecord>()
                     
                     allMsgs.forEach { msg ->
-                        val contactData = phoneToData[msg.address.replace(Regex("[^0-9]"), "")]
+                        val localPhone = normalizePhone(msg.address)
+                        val contactData = phoneToData[localPhone]
                         val contactId = contactData?.get("id")?.toString()
                         if (contactId != null) {
                             val lastMsgOnServer = contactData["last_message_at"]?.toString()
@@ -524,7 +523,7 @@ class MainActivity : ComponentActivity() {
             
             val phone = extractPhoneNumber(file.name)
             val contactName = extractContactName(file.name)
-            val phonePart = phone?.replace(Regex("[^0-9]"), "") ?: ""
+            val phonePart = normalizePhone(phone ?: "")
             
             // Fast Check: Is this file in our server "pocket" (Set)?
             val syncedFilesSet = phoneToSyncedSet[phonePart] ?: hashSetOf()

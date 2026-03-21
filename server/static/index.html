@@ -17,6 +17,7 @@
             --text-muted: #94a3b8;
             --border: rgba(255, 255, 255, 0.08);
             --success: #10b981;
+            --highlight: #ffee58;
             --warning: #f59e0b;
             --transition: all 0.2s ease-out;
         }
@@ -42,14 +43,17 @@
             margin-bottom: 2.5rem; box-shadow: 0 12px 24px rgba(0,0,0,0.4);
         }
         .ai-card-ttl { font-size: 0.7rem; font-weight: 800; color: var(--accent); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; }
-        .ai-summary { font-size: 0.95rem; line-height: 1.7; color: #cbd5e1; margin-bottom: 1.5rem; }
+        .ai-summary { font-size: 0.95rem; line-height: 1.7; color: #cbd5e1; margin-bottom: 1.5rem; white-space: pre-wrap; }
         
+        /* Highlight sections */
+        .summary-tag { color: var(--accent); font-weight: 800; margin-top: 10px; display: block; }
+
         .ai-action-bar { 
             background: rgba(0, 210, 255, 0.08); border-radius: 16px; padding: 16px; 
             border: 1px solid rgba(0, 210, 255, 0.15); display: flex; flex-direction: column; gap: 6px;
         }
         .ai-action-ttl { font-size: 0.72rem; color: var(--accent); font-weight: 800; display: flex; align-items: center; gap: 6px; }
-        .ai-action-txt { color: #f8fafc; font-weight: 700; font-size: 1rem; line-height: 1.4; }
+        .ai-action-txt { color: #f8fafc; font-weight: 700; font-size: 1rem; line-height: 1.6; white-space: pre-wrap; }
 
         /* Interaction Timeline */
         .h-sec { font-size: 0.8rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1.5rem; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -58,7 +62,7 @@
         .date-label { 
             background: #1e293b; padding: 6px 14px; border-radius: 8px;
             font-size: 0.7rem; font-weight: 700; color: var(--accent); 
-            display: inline-block; margin: 1rem 0 0.5rem 0; border: 1px solid var(--border);
+            display: inline-block; margin: 1.5rem 0 0.5rem 0; border: 1px solid var(--border);
         }
 
         .timeline-item { position: relative; }
@@ -72,14 +76,13 @@
 
         .event-content { font-size: 0.9rem; line-height: 1.6; color: #e2e8f0; }
         
-        /* PREMIUM CALL SUMMARY BOX (V3) */
         .ai-inner-card { 
             background: #232d39; border: 1px solid rgba(0, 210, 255, 0.2);
             padding: 16px; border-radius: 16px; margin-top: 12px;
             position: relative;
         }
         .ai-inner-ttl { font-size: 0.65rem; font-weight: 800; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; opacity: 0.8; }
-        .ai-inner-txt { font-size: 1rem; font-weight: 600; color: white; line-height: 1.5; margin-bottom: 12px; }
+        .ai-inner-txt { font-size: 1rem; font-weight: 600; color: white; line-height: 1.5; margin-bottom: 12px; white-space: pre-wrap; }
 
         .todo-badge {
             background: rgba(16, 185, 129, 0.12); border: 1px dashed var(--success);
@@ -89,23 +92,22 @@
         .todo-badge::before { content: "🎯 추천 다음 할 일"; font-size: 0.65rem; opacity: 0.8; }
 
         .hidden { display: none !important; }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .timeline-item { animation: slideIn 0.3s ease-out forwards; }
 
         /* Modal Enhancements */
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
-        .modal-box { background: #161b22; border: 1px solid var(--border); width: 100%; max-width: 500px; border-radius: 24px; padding: 2rem 1.5rem; overflow-y: auto; max-height: 80vh; position: relative; }
-        .modal-close { position: absolute; top: 1rem; right: 1.2rem; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); }
-        #modal-content { font-size: 0.95rem; color: #cbd5e1; line-height: 1.7; white-space: pre-wrap; margin-top: 1rem; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 0.5rem; }
+        .modal-box { background: #161b22; border: 1px solid var(--border); width: 100%; max-width: 800px; border-radius: 24px; padding: 2rem 1.5rem; overflow-y: auto; height: 90vh; position: relative; }
+        .modal-close { position: absolute; top: 1.5rem; right: 1.5rem; font-size: 1.8rem; cursor: pointer; color: var(--text-muted); z-index: 10; }
+        
+        /* Dialogue Styles */
+        .dialogue-line { margin-bottom: 12px; line-height: 1.6; font-size: 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px; }
+        .speaker-other { color: var(--warning); font-weight: 800; margin-right: 8px; }
+        .speaker-me { color: var(--accent); font-weight: 800; margin-right: 8px; }
+        .dialogue-txt { color: #e2e8f0; }
     </style>
 </head>
 <body>
     <main>
         <div class="detail-section">
-            <div id="home-view" class="hidden">
-                 <p style="text-align:center; color: var(--text-muted); padding-top: 5rem;">연락처를 선택해 주세요.</p>
-            </div>
-
             <div id="detail-view">
                 <div class="profile-hdr">
                     <h1 id="detail-name">-</h1>
@@ -114,10 +116,10 @@
 
                 <div class="ai-card">
                     <div class="ai-card-ttl"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 인텔리전스 분석 리포트</div>
-                    <p id="ai-summary" class="ai-summary">데이터를 분석하고 있습니다...</p>
+                    <div id="ai-summary" class="ai-summary">분석 데이터를 불러오고 있습니다...</div>
                     <div class="ai-action-bar">
                         <span class="ai-action-ttl"><i class="fa-solid fa-star"></i> 추천 다음 할 일</span>
-                        <span id="ai-action" class="ai-action-txt">-</span>
+                        <div id="ai-action" class="ai-action-txt">-</div>
                     </div>
                 </div>
 
@@ -130,7 +132,7 @@
     <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
         <div class="modal-box" onclick="event.stopPropagation()">
             <span class="modal-close" onclick="closeModal()">&times;</span>
-            <h2 id="modal-title" style="font-weight: 800; font-size: 1.2rem;">상세 대화 내용</h2>
+            <h2 id="modal-title" style="font-weight: 800; font-size: 1.2rem; margin-bottom: 25px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">상세 대화 전문</h2>
             <div id="modal-content"></div>
         </div>
     </div>
@@ -152,6 +154,12 @@
             }
         }
 
+        function formatSummary(text) {
+            // Replace [Markers] with highlighted tags
+            let formatted = text.replace(/\[(초기 접점|진행 현황|최근 이슈)\]/g, '<span class="summary-tag">[$1]</span>');
+            return formatted;
+        }
+
         async function selectContact(c) {
             document.getElementById('detail-name').innerText = c.name;
             document.getElementById('detail-org').innerText = c.organization || "고객 정보";
@@ -165,10 +173,10 @@
             try {
                 const res = await fetch(`${API}/ai-summary/${id}`);
                 const data = await res.json();
-                document.getElementById('ai-summary').innerText = data.summary;
+                document.getElementById('ai-summary').innerHTML = formatSummary(data.summary);
                 document.getElementById('ai-action').innerText = data.next_action;
             } catch(e) {
-                document.getElementById('ai-summary').innerText = "분석 데이터를 불러오지 못했습니다.";
+                document.getElementById('ai-summary').innerText = "데이터가 부족하여 분석할 수 없습니다.";
             }
         }
 
@@ -186,7 +194,6 @@
                 const recordingData = await recRes.json();
 
                 let combined = [];
-
                 timelineData.filter(i => i.type === 'message').forEach(m => {
                     combined.push({
                         timestamp: new Date(m.timestamp),
@@ -195,7 +202,6 @@
                         content: m.data.content
                     });
                 });
-
                 recordingData.forEach(r => {
                     combined.push({
                         timestamp: new Date(r.timestamp),
@@ -209,7 +215,7 @@
                 combined.sort((a, b) => b.timestamp - a.timestamp);
                 
                 if (combined.length === 0) {
-                    container.innerHTML = "<p style='color:var(--text-muted); font-size: 0.9rem;'>표시할 대화 이력이 없습니다.</p>";
+                    container.innerHTML = "<p style='color:var(--text-muted); font-size: 0.9rem;'>이력이 없습니다.</p>";
                     return;
                 }
 
@@ -219,7 +225,6 @@
 
                 combined.forEach(item => {
                     const dateStr = item.timestamp.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
-                    
                     if (dateStr !== lastDateStr) {
                         const groupDiv = document.createElement('div');
                         groupDiv.className = "date-group";
@@ -231,17 +236,13 @@
 
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "timeline-item";
-                    
                     const timeStr = item.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
                     if (item.type === 'message') {
                         const isSent = item.direction === 'SENT' || item.direction === 'OUTBOX';
                         itemDiv.innerHTML = `
                             <div class="event-card">
-                                <div class="event-meta">
-                                    <span class="type-msg">${isSent ? '보낸 문자' : '받은 문자'}</span>
-                                    <span>${timeStr}</span>
-                                </div>
+                                <div class="event-meta"><span class="type-msg">${isSent ? '보낸 문자' : '받은 문자'}</span><span>${timeStr}</span></div>
                                 <div class="event-content">${item.content}</div>
                             </div>
                         `;
@@ -252,18 +253,10 @@
                             const split = summaryTxt.split('[할일]');
                             summaryTxt = split[0].trim();
                             todoTxt = split[1].trim();
-                        } else if (summaryTxt.includes('할일:')) {
-                            const split = summaryTxt.split('할일:');
-                            summaryTxt = split[0].trim();
-                            todoTxt = split[1].trim();
                         }
-
                         itemDiv.innerHTML = `
                             <div class="event-card" onclick="openModalById('${item.id}')" style="cursor:pointer">
-                                <div class="event-meta">
-                                    <span class="type-call">AI 통화 분석</span>
-                                    <span>${timeStr}</span>
-                                </div>
+                                <div class="event-meta"><span class="type-call">AI 통화 분석</span><span>${timeStr}</span></div>
                                 <div class="ai-inner-card">
                                     <div class="ai-inner-ttl"><i class="fa-solid fa-robot"></i> CALL CONTENT</div>
                                     <div class="ai-inner-txt">${summaryTxt}</div>
@@ -275,12 +268,8 @@
                     }
                     currentDateGroup.appendChild(itemDiv);
                 });
-
                 window._currentRecordings = recordingData;
-
-            } catch (e) {
-                container.innerHTML = "<p style='color:var(--warning)'>데이터를 불러오는 중 오류가 발생했습니다.</p>";
-            }
+            } catch (e) { container.innerHTML = "오류 발생"; }
         }
 
         function openModalById(id) {
@@ -288,14 +277,33 @@
             if (r) openModal(r);
         }
 
+        function formatDialogue(text) {
+            if (!text) return "전사 데이터가 없습니다.";
+            const lines = text.split('\n');
+            let html = "";
+            lines.forEach(line => {
+                if (line.trim()) {
+                    let speaker = "";
+                    let content = line;
+                    if (line.includes('상대방:')) {
+                        speaker = '<span class="speaker-other">상대방:</span>';
+                        content = line.split('상대방:')[1];
+                    } else if (line.includes('나:')) {
+                        speaker = '<span class="speaker-me">나:</span>';
+                        content = line.split('나:')[1];
+                    }
+                    html += `<div class="dialogue-line">${speaker}<span class="dialogue-txt">${content}</span></div>`;
+                }
+            });
+            return html;
+        }
+
         function openModal(r) {
             document.getElementById('modal-overlay').style.display = "flex";
-            document.getElementById('modal-title').innerText = "AI 받아쓰기 전문";
-            document.getElementById('modal-content').innerText = r.transcription || "전사 데이터가 없습니다.";
+            document.getElementById('modal-content').innerHTML = formatDialogue(r.transcription);
         }
 
         function closeModal() { document.getElementById('modal-overlay').style.display = "none"; }
-
         init();
     </script>
 </body>
