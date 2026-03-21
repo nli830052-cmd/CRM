@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SalesMind Pro | AI CRM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-deep: #080a0c;
+            --sidebar: #101418;
+            --card: #181d23;
+            --accent: #00d2ff; 
+            --bubble-sent: #007aff;
+            --bubble-inbox: #2c2c2e;
+            --text-main: #f0f4f8;
+            --text-muted: #8e8e93;
+            --border: rgba(255, 255, 255, 0.08);
+            --success: #00e676;
+            --warning: #ffb74d;
+            --transition: all 0.3s ease;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        body { background-color: var(--bg-deep); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
+
+        /* Sidebar Glass Look */
+        aside { width: 260px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 2.5rem 1.5rem; }
+        .logo { font-size: 1.4rem; font-weight: 800; display: flex; align-items: center; gap: 10px; color: var(--accent); margin-bottom: 3.5rem; letter-spacing: -0.5px; }
+        .nav-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1rem; padding-left: 10px; }
+        .nav-link { display: flex; align-items: center; gap: 1rem; padding: 12px 15px; border-radius: 12px; color: var(--text-muted); text-decoration: none; margin-bottom: 5px; font-weight: 500; transition: var(--transition); }
+        .nav-link.active, .nav-link:hover { background: var(--card); color: var(--accent); }
+
+        /* Main Workspace */
+        main { flex: 1; display: flex; }
+
+        /* Contact List Area */
+        .list-section { width: 360px; border-right: 1px solid var(--border); display: flex; flex-direction: column; background: rgba(0,0,0,0.1); }
+        .search-area { padding: 1.5rem; }
+        .search-input { width: 100%; background: var(--sidebar); border: 1px solid var(--border); padding: 12px 18px; border-radius: 12px; color: white; outline: none; transition: var(--transition); font-size: 0.9rem; }
+        .search-input:focus { border-color: var(--accent); }
+
+        .contact-items { flex: 1; overflow-y: auto; padding: 0 1rem; }
+        .contact-card { background: var(--card); border: 1px solid var(--border); padding: 1.2rem; border-radius: 16px; margin-bottom: 1rem; cursor: pointer; transition: var(--transition); }
+        .contact-card:hover { border-color: var(--accent); }
+        .contact-card.active { border-color: var(--accent); background: linear-gradient(135deg, var(--card), rgba(0, 210, 255, 0.05)); }
+        .contact-card .c-name { font-weight: 700; font-size: 1rem; }
+        .contact-card .c-org { color: var(--text-muted); font-size: 0.8rem; margin-top: 2px; }
+
+        /* Detail Area */
+        .detail-section { flex: 1; overflow-y: auto; padding: 3rem; background: radial-gradient(circle at top right, rgba(0, 210, 255, 0.03), transparent 45%); display: flex; flex-direction: column; }
+
+        /* Dashboard Overview */
+        .dashboard-home { animation: fadeIn 0.4s ease; padding-bottom: 5rem; }
+        .main-stat-card { background: var(--card); padding: 3rem; border-radius: 24px; border: 1px solid var(--border); margin-bottom: 2rem; position: relative; }
+        .main-stat-label { font-size: 1rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 1px; }
+        .main-stat-val { font-size: 6rem; font-weight: 900; color: var(--accent); letter-spacing: -2px; }
+        
+        .sub-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+        .sub-stat-card { background: var(--sidebar); padding: 2rem; border-radius: 20px; border: 1px solid var(--border); }
+        .sub-stat-val { font-size: 2rem; font-weight: 800; color: white; display: block; margin-top: 5px; }
+
+        /* Profile Header */
+        .profile-hdr { margin-bottom: 2.5rem; display: flex; align-items: flex-end; gap: 1.5rem; }
+        .profile-hdr h1 { font-size: 3rem; font-weight: 800; line-height: 1; }
+        .profile-hdr p { color: var(--accent); font-weight: 600; font-size: 1rem; }
+
+        /* AI Intelligence Card */
+        .ai-card { background: linear-gradient(145deg, #1c2229, #12161b); border: 1px solid var(--border); padding: 2rem; border-radius: 24px; margin-bottom: 3rem; box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+        .ai-card-ttl { font-size: 0.8rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; }
+        .ai-summary { font-size: 1.1rem; line-height: 1.7; color: #e1e7ef; margin-bottom: 1.5rem; font-weight: 400; }
+        .ai-action-bar { background: rgba(0, 210, 255, 0.08); border-radius: 14px; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(0, 210, 255, 0.2); }
+
+        /* CHAT UI TIMELINE */
+        .chat-container { flex: 1; display: flex; flex-direction: column; gap: 20px; position: relative; }
+        .chat-container::before { content: ""; position: absolute; left: 50%; width: 1px; height: 100%; background: var(--border); z-index: 0; opacity: 0.5; }
+        
+        .bubble-row { display: flex; width: 100%; position: relative; z-index: 1; }
+        .bubble-sent { justify-content: flex-end; }
+        .bubble-inbox { justify-content: flex-start; }
+        
+        .bubble { max-width: 65%; padding: 14px 20px; border-radius: 20px; position: relative; font-size: 0.95rem; line-height: 1.5; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        .content-sent .bubble { background: var(--bubble-sent); color: white; border-bottom-right-radius: 4px; }
+        .content-inbox .bubble { background: var(--bubble-inbox); color: #f2f2f7; border-bottom-left-radius: 4px; }
+        
+        .bubble-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 6px; display: block; }
+        .content-sent .bubble-meta { text-align: right; }
+
+        /* Specialized Call UI */
+        .call-banner { width: 100%; display: flex; justify-content: center; margin: 10px 0; }
+        .call-tag { background: rgba(255, 183, 77, 0.1); border: 1px solid var(--warning); color: var(--warning); padding: 8px 16px; border-radius: 100px; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+
+        /* Recording Cards in Sidebar-like grid */
+        .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+        .rec-item { background: var(--card); border: 1px solid var(--border); padding: 1.5rem; border-radius: 20px; cursor: pointer; transition: var(--transition); }
+        .rec-item:hover { border-color: var(--accent); background: rgba(0,210,255,0.05); }
+
+        /* Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 2rem; }
+        .modal-box { background: var(--sidebar); border: 1px solid var(--border); width: 100%; max-width: 900px; border-radius: 30px; padding: 3rem; overflow-y: auto; max-height: 85vh; }
+        .modal-close { position: absolute; top: 2rem; right: 2rem; font-size: 1.8rem; cursor: pointer; color: var(--text-muted); }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .hidden { display: none !important; }
+
+        /* Section Headings */
+        .h-sec { font-size: 0.8rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+        /* ... 기존 스타일 유지 하되 아래 추가/수정 ... */
+        .timeline-v2 { display: flex; flex-direction: column; gap: 2rem; position: relative; padding-left: 20px; }
+        .timeline-v2::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: linear-gradient(to bottom, var(--accent), transparent); opacity: 0.3; }
+
+        .date-group { position: relative; }
+        .date-label { 
+            position: sticky; top: 0; z-index: 10;
+            background: var(--bg-deep); padding: 5px 12px; border-radius: 8px;
+            font-size: 0.75rem; font-weight: 800; color: var(--accent); 
+            display: inline-block; margin-bottom: 1.5rem; border: 1px solid rgba(0,210,255,0.2);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .timeline-item { 
+            position: relative; margin-bottom: 1.5rem; padding-left: 25px; 
+            animation: fadeIn 0.5s ease forwards;
+        }
+        .timeline-item::before { 
+            content: ""; position: absolute; left: -24px; top: 12px; 
+            width: 10px; height: 10px; border-radius: 50%; background: var(--sidebar);
+            border: 2px solid var(--accent); z-index: 2;
+        }
+
+        .event-card { 
+            background: var(--card); border: 1px solid var(--border); 
+            padding: 1.2rem; border-radius: 18px; transition: var(--transition);
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .event-card:hover { border-color: rgba(0,210,255,0.4); transform: translateX(5px); }
+        
+        .event-meta { font-size: 0.7rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+        .event-type { font-weight: 800; text-transform: uppercase; letter-spacing: 1px; font-size: 0.65rem; }
+        .type-msg { color: #007aff; }
+        .type-call { color: var(--warning); }
+        
+        .event-content { font-size: 0.95rem; line-height: 1.6; color: var(--text-main); }
+        
+        /* AI Summary Badge inside timeline */
+        .ai-inner-card { 
+            background: rgba(0, 210, 255, 0.05); border-left: 3px solid var(--accent);
+            padding: 12px 15px; border-radius: 0 12px 12px 12px; margin-top: 5px;
+        }
+        .ai-inner-ttl { font-size: 0.7rem; font-weight: 800; color: var(--accent); margin-bottom: 5px; display: flex; align-items: center; gap: 5px; }
+
+        .todo-badge {
+            background: rgba(0, 230, 118, 0.1); border: 1px solid var(--success);
+            color: var(--success); padding: 4px 10px; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 600; margin-top: 8px; display: inline-flex; align-items: center; gap: 5px;
+        }
+    </style>
+</head>
+<body>
+    <aside>
+        <div class="logo"><i class="fa-solid fa-atom"></i> SalesMind</div>
+        <div class="nav-group">
+            <div class="nav-label">Main Console</div>
+            <a href="#" class="nav-link active" onclick="showHome()"><i class="fa-solid fa-dashboard"></i> Dashboard</a>
+            <a href="#" class="nav-link"><i class="fa-solid fa-brain"></i> Intelligence</a>
+        </div>
+        <div class="nav-group">
+            <div class="nav-label">Database</div>
+            <a href="#" class="nav-link"><i class="fa-solid fa-id-badge"></i> Contacts</a>
+            <a href="#" class="nav-link"><i class="fa-solid fa-microphone"></i> Recordings</a>
+        </div>
+    </aside>
+
+    <main>
+        <div class="list-section">
+            <div class="search-area">
+                <input type="text" class="search-input" placeholder="Search customer ID, name..." onkeyup="filterContacts(this.value)">
+            </div>
+            <div class="contact-items" id="contacts-list"></div>
+        </div>
+
+        <div class="detail-section">
+            <div id="home-view">
+                <div class="main-stat-card">
+                    <div class="main-stat-label">Total Contacts</div>
+                    <div class="main-stat-val" id="global-contacts">0</div>
+                </div>
+                <div class="sub-stats">
+                    <div class="sub-stat-card">
+                        <div class="sub-stat-label">Total Sync Interacts</div>
+                        <div class="sub-stat-val" id="global-logs">0</div>
+                    </div>
+                    <div class="sub-stat-card">
+                        <div class="sub-stat-label">AI Analyzed Files</div>
+                        <div class="sub-stat-val" id="global-recordings">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="detail-view" class="hidden">
+                <div class="profile-hdr">
+                    <h1 id="detail-name">-</h1>
+                    <p id="detail-org">-</p>
+                </div>
+
+                <div class="ai-card">
+                    <div class="ai-card-ttl"><i class="fa-solid fa-wand-magic-sparkles"></i> Gemini AI Intelligence Detail</div>
+                    <p id="ai-summary" class="ai-summary">분석 데이터를 불러오고 있습니다...</p>
+                    <div class="ai-action-bar">
+                        <span style="font-weight: 800; color: var(--accent);"><i class="fa-solid fa-star"></i> Recommended Action</span>
+                        <span id="ai-action" style="color: white; font-weight: 600;">-</span>
+                    </div>
+                </div>
+
+                <div class="h-sec">Interaction History</div>
+                <div class="timeline-v2" id="unified-timeline"></div>
+            </div>
+        </div>
+    </main>
+
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <h2 id="modal-title" style="margin-bottom: 2rem; font-weight: 800;">Recording Details</h2>
+            <div id="modal-content" style="line-height: 1.8; white-space: pre-wrap; font-size: 1.1rem; color: #f0f4f8;"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 0;
+        const limit = 100;
+        let isFetching = false;
+        let currentSearch = "";
+        const API = window.location.origin;
+
+        async function init() {
+            await fetchStats();
+            await fetchContactsList(true); // Initial load
+            setupInfiniteScroll();
+        }
+
+        async function fetchStats() {
+            try {
+                const res = await fetch(`${API}/stats/`);
+                const data = await res.json();
+                document.getElementById('global-contacts').innerText = data.total_contacts.toLocaleString();
+                document.getElementById('global-recordings').innerText = data.total_recordings.toLocaleString();
+                document.getElementById('global-logs').innerText = (data.total_calls + data.total_messages).toLocaleString();
+            } catch(e) {}
+        }
+
+        async function fetchContactsList(isInitial = false) {
+            if (isFetching) return;
+            isFetching = true;
+
+            try {
+                const skip = currentPage * limit;
+                const url = `${API}/contacts/?skip=${skip}&limit=${limit}&q=${encodeURIComponent(currentSearch)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                if (isInitial) {
+                    document.getElementById('contacts-list').innerHTML = "";
+                }
+                
+                renderContacts(data);
+                if (data.length === limit) {
+                    currentPage++;
+                }
+            } catch(e) {
+                console.error("Fetch Error:", e);
+            } finally {
+                isFetching = false;
+            }
+        }
+
+        function renderContacts(data) {
+            const container = document.getElementById('contacts-list');
+            data.forEach(c => {
+                const div = document.createElement('div');
+                div.className = "contact-card";
+                div.id = `c-${c.id}`;
+                div.onclick = () => selectContact(c);
+                div.innerHTML = `
+                    <div class="c-name">${c.name}</div>
+                    <div class="c-org">${c.organization || '일반 고객'}</div>
+                    <div style="font-size:0.7rem; color:var(--accent); margin-top:5px;">${c.phone_number}</div>
+                `;
+                container.appendChild(div);
+            });
+            if (data.length === 0 && currentPage === 0) {
+                container.innerHTML = "<p style='color:var(--text-muted); text-align:center; padding: 1rem;'>검색 결과가 없습니다.</p>";
+            }
+        }
+
+        function setupInfiniteScroll() {
+            const container = document.getElementById('contacts-list');
+            container.addEventListener('scroll', () => {
+                if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
+                    fetchContactsList();
+                }
+            });
+        }
+
+        let searchTimer;
+        function filterContacts(q) {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                currentSearch = q;
+                currentPage = 0;
+                fetchContactsList(true);
+            }, 300); // Debounce
+        }
+
+        async function selectContact(c) {
+            document.getElementById('home-view').classList.add('hidden');
+            document.getElementById('detail-view').classList.remove('hidden');
+            document.querySelectorAll('.contact-card').forEach(el => el.classList.remove('active'));
+            if(document.getElementById(`c-${c.id}`)) document.getElementById(`c-${c.id}`).classList.add('active');
+
+            document.getElementById('detail-name').innerText = c.name;
+            document.getElementById('detail-org').innerText = c.organization || "고객 정보";
+            document.getElementById('ai-summary').innerText = "전체 이력 분석 중...";
+
+            loadUnifiedTimeline(c.id);
+            loadAI(c.id);
+        }
+
+        async function loadAI(id) {
+            try {
+                const res = await fetch(`${API}/ai-summary/${id}`);
+                const data = await res.json();
+                document.getElementById('ai-summary').innerText = data.summary;
+                document.getElementById('ai-action').innerText = data.next_action;
+            } catch(e) {}
+        }
+
+        async function loadUnifiedTimeline(id) {
+            const container = document.getElementById('unified-timeline');
+            container.innerHTML = "<p style='color:var(--text-muted)'>이력을 불러오는 중...</p>";
+
+            try {
+                // 1. 통화/문자 타임라인과 AI 녹음 데이터를 병렬로 가져옴
+                const [timeRes, recRes] = await Promise.all([
+                    fetch(`${API}/timeline/${id}`),
+                    fetch(`${API}/recordings/${id}`)
+                ]);
+                
+                const timelineData = await timeRes.json();
+                const recordingData = await recRes.json();
+
+                // 2. 데이터 통합 및 정렬 (최신순)
+                // 통화 목록 중 녹음이 있는 경우 녹음 데이터를 결합할 수 있도록 준비
+                let combined = [];
+
+                // 문자 데이터 추가
+                timelineData.filter(i => i.type === 'message').forEach(m => {
+                    combined.push({
+                        timestamp: new Date(m.timestamp),
+                        type: 'message',
+                        direction: m.data.direction,
+                        content: m.data.content
+                    });
+                });
+
+                // 녹음 데이터 추가 (통화 로그 대신 실제 내용이 있는 녹음을 우선시)
+                recordingData.forEach(r => {
+                    combined.push({
+                        timestamp: new Date(r.timestamp),
+                        type: 'ai_call',
+                        summary: r.summary,
+                        transcription: r.transcription,
+                        id: r.id
+                    });
+                });
+
+                // 3. 날짜별 그룹화
+                combined.sort((a, b) => b.timestamp - a.timestamp);
+                
+                if (combined.length === 0) {
+                    container.innerHTML = "<p style='color:var(--text-muted)'>표시할 대화 이력이 없습니다.</p>";
+                    return;
+                }
+
+                container.innerHTML = "";
+                let lastDateStr = "";
+                let currentDateGroup = null;
+
+                combined.forEach(item => {
+                    const dateStr = item.timestamp.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+                    
+                    if (dateStr !== lastDateStr) {
+                        const groupDiv = document.createElement('div');
+                        groupDiv.className = "date-group";
+                        groupDiv.innerHTML = `<div class="date-label">${dateStr}</div>`;
+                        container.appendChild(groupDiv);
+                        currentDateGroup = groupDiv;
+                        lastDateStr = dateStr;
+                    }
+
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = "timeline-item";
+                    
+                    const timeStr = item.timestamp.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+                    if (item.type === 'message') {
+                        const isSent = item.direction === 'SENT';
+                        itemDiv.innerHTML = `
+                            <div class="event-card">
+                                <div class="event-meta">
+                                    <span class="event-type type-msg">${isSent ? '보낸 문자' : '받은 문자'}</span>
+                                    <span>${timeStr}</span>
+                                </div>
+                                <div class="event-content">${item.content}</div>
+                            </div>
+                        `;
+                    } else if (item.type === 'ai_call') {
+                        let summaryTxt = item.summary.replace('[요약]', '').trim();
+                        let todoTxt = "";
+                        if (summaryTxt.includes('[할일]')) {
+                            const split = summaryTxt.split('[할일]');
+                            summaryTxt = split[0].trim();
+                            todoTxt = split[1].trim();
+                        }
+
+                        itemDiv.innerHTML = `
+                            <div class="event-card" onclick="openModalById('${item.id}')" style="cursor:pointer">
+                                <div class="event-meta">
+                                    <span class="event-type type-call">AI 통화 요약</span>
+                                    <span>${timeStr}</span>
+                                </div>
+                                <div class="ai-inner-card">
+                                    <div class="ai-inner-ttl"><i class="fa-solid fa-robot"></i> CALL SUMMARY</div>
+                                    <div class="event-content" style="font-weight:600;">${summaryTxt}</div>
+                                    ${todoTxt ? `<div class="todo-badge"><i class="fa-solid fa-check-circle"></i> 다음 조치: ${todoTxt}</div>` : ""}
+                                </div>
+                                <div style="text-align:right; font-size:0.6rem; color:var(--accent); margin-top:5px;">상세 대화 보기 ></div>
+                            </div>
+                        `;
+                    }
+                    currentDateGroup.appendChild(itemDiv);
+                });
+
+                // 전역 스토리지에 녹음 데이터 백업 (모달용)
+                window._currentRecordings = recordingData;
+
+            } catch (e) {
+                container.innerHTML = "<p style='color:var(--warning)'>데이터를 불러오는 중 오류가 발생했습니다.</p>";
+                console.error(e);
+            }
+        }
+
+        function openModalById(id) {
+            const r = window._currentRecordings.find(rec => rec.id == id);
+            if (r) openModal(r);
+        }
+
+
+        function showHome() {
+            document.getElementById('home-view').classList.remove('hidden');
+            document.getElementById('detail-view').classList.add('hidden');
+            document.querySelectorAll('.contact-card').forEach(el => el.classList.remove('active'));
+            fetchStats();
+        }
+
+        function openModal(r) {
+            document.getElementById('modal-overlay').style.display = "flex";
+            document.getElementById('modal-title').innerText = "AI 받아쓰기 & 대화 전문";
+            document.getElementById('modal-content').innerText = r.transcription || "전사 데이터 없음";
+        }
+
+        function closeModal() { document.getElementById('modal-overlay').style.display = "none"; }
+
+        init();
+    </script>
+</body>
+</html>

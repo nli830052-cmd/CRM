@@ -1,0 +1,30 @@
+# --- Python Server ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+db_backups/
+recordings/
+uploads/
+
+# --- Android App ---
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.jks
+*.keystore
+
+# --- OS & IDE ---
+.vscode/
+*.swp
+*.bak
+Thumbs.db
+Desktop.ini
