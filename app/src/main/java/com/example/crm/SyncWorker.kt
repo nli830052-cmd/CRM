@@ -3,8 +3,10 @@ package com.example.crm
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
+import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import android.database.Cursor
 import com.example.crm.network.RetrofitClient
 import com.example.crm.models.*
 import android.provider.CallLog
@@ -28,14 +30,14 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
     private val serverDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): ListenableWorker.Result {
         return withContext(Dispatchers.IO) {
             try {
                 setProgress(workDataOf("status" to "서버 정보 대조 중..."))
                 
                 // 1. Fetch Server Status
                 val statsResponse = RetrofitClient.apiService.getContactsStats()
-                if (!statsResponse.isSuccessful) return@withContext Result.retry()
+                if (!statsResponse.isSuccessful) return@withContext ListenableWorker.Result.retry()
                 
                 val initialStats = statsResponse.body() ?: emptyList()
                 var phoneToData = initialStats.associateBy(
@@ -111,10 +113,10 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 syncRecordings(phoneToData)
 
                 Log.i("SyncWorker", "Background sync completed successfully!")
-                Result.success()
+                ListenableWorker.Result.success()
             } catch (e: Exception) {
                 Log.e("SyncWorker", "Sync failed: ${e.message}")
-                Result.failure()
+                ListenableWorker.Result.failure()
             }
         }
     }

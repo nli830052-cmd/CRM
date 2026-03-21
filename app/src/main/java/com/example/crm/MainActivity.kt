@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var showDatePicker by remember { mutableStateOf(false) }
         var selectedDateFilter by remember { mutableStateOf<String?>(null) }
+        var isLoadingInitialData by remember { mutableStateOf(true) }
         
         val datePickerState = rememberDatePickerState()
         
@@ -181,17 +182,28 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             try {
-                // Fetch existing data always on start, so user doesn't see a blank screen
-                launch {
+                isLoadingInitialData = true
+                // 1. Fetch existing data always on start
+                val t1 = launch {
                     val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
                     if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
                 }
-                launch {
+                val t2 = launch {
                     val resStats = RetrofitClient.apiService.getContactsStats()
                     if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
                 }
+                t1.join()
+                t2.join()
+                isLoadingInitialData = false
+
+                // 2. Automatically trigger sync for new data
+                attemptSyncAll { b, s -> 
+                    isSyncing = b
+                    if (s != null) syncProgress = s
+                }
             } catch (e: Exception) {
                 Log.e("LoadError", "Initial fetch failed: ${e.message}")
+                isLoadingInitialData = false
             }
         }
 
@@ -287,13 +299,21 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 
-                                if (globalTimeline.isEmpty() && isSyncing) {
+                                if (isLoadingInitialData) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator()
+                                            Spacer(Modifier.height(16.dp))
+                                            Text("클라우드 데이터를 불러오는 중...", style = MaterialTheme.typography.bodyLarge)
+                                        }
+                                    }
+                                } else if (globalTimeline.isEmpty() && isSyncing) {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                          Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                              CircularProgressIndicator()
                                              Spacer(Modifier.height(16.dp))
                                              Text(syncProgress, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                                             Text("핸드폰의 활동(통화/문자/녹음)을 클라우드로 전송 중입니다.", 
+                                             Text("핸드폰의 신규 활동(통화/문자/녹음)을 클라우드로 전송 중입니다.", 
                                                   style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                          }
                                     }
