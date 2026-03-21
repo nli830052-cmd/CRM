@@ -62,6 +62,15 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
+import androidx.work.ContentUriTrigger
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.WorkRequest
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.ui.viewinterop.AndroidView
 
 // Helper Data Class for SMS
@@ -111,22 +120,81 @@ class MainActivity : ComponentActivity() {
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
         var searchQuery by remember { mutableStateOf("") }
+        var showDatePicker by remember { mutableStateOf(false) }
+        var selectedDateFilter by remember { mutableStateOf<String?>(null) } // Format: YYYY-MM-DD
+        
+        val datePickerState = rememberDatePickerState()
         
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         val scope = rememberCoroutineScope()
 
-        // Fetch initial stats when dashboard opens
+        if (showDatePicker) {
+            DatePickerDialog(
+                onDismissRequest = { showDatePicker = false },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val sel = datePickerState.selectedDateMillis
+                        if (sel != null) {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                            selectedDateFilter = sdf.format(Date(sel))
+                        }
+                        showDatePicker = false
+                    }) { Text("확인") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { 
+                        selectedDateFilter = null
+                        showDatePicker = false 
+                    }) { Text("필터 취소") }
+                }
+            ) {
+                DatePicker(state = datePickerState)
+            }
+        }
+
+        // Observe Background Sync Service via WorkManager
+        val context = LocalContext.current
+        DisposableEffect(Unit) {
+            val liveData = WorkManager.getInstance(context).getWorkInfosByTagLiveData("sync")
+            val observer = androidx.lifecycle.Observer<List<WorkInfo>> { workInfos ->
+                val info = workInfos?.firstOrNull()
+                if (info != null) {
+                    when (info.state) {
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING -> {
+                            isSyncing = true
+                            syncProgress = info.progress.getString("status") ?: "진행 중..."
+                        }
+                        WorkInfo.State.SUCCEEDED -> {
+                            if (isSyncing) {
+                                isSyncing = false
+                                syncProgress = "완료"
+                                // Final refresh when sync finishes
+                                scope.launch {
+                                    val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                                    if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                                }
+                            }
+                        }
+                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                            isSyncing = false
+                            syncProgress = "실패/취소됨"
+                        }
+                        else -> { isSyncing = false }
+                    }
+                }
+            }
+            liveData.observeForever(observer)
+            onDispose { liveData.removeObserver(observer) }
+        }
+
+        // Fetch initial list when dashboard opens (unless already syncing)
         LaunchedEffect(Unit) {
             try {
-                isSyncing = true
-                val resStats = RetrofitClient.apiService.getContactsStats()
-                if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
-                
-                val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
-                if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
-                isSyncing = false
+                if (!isSyncing) {
+                    val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                    if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                }
             } catch (e: Exception) {
-                isSyncing = false
                 Log.e("LoadError", "Initial load failed: ${e.message}")
             }
         }
@@ -201,23 +269,18 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     actions = {
+                                        IconButton(onClick = { showDatePicker = true }) {
+                                            Icon(
+                                                imageVector = Icons.Default.DateRange, 
+                                                contentDescription = "Filter by Date",
+                                                tint = if (selectedDateFilter != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         IconButton(
                                             onClick = { 
                                                 attemptSyncAll { isLoading, status ->
                                                     isSyncing = isLoading
                                                     if (status != null) syncProgress = status
-                                                    if (!isLoading) { // Reload everything after sync completes
-                                                        lifecycleScope.launch {
-                                                            launch {
-                                                                val resStats = RetrofitClient.apiService.getContactsStats()
-                                                                if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
-                                                            }
-                                                            launch {
-                                                                val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
-                                                                if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
-                                                            }
-                                                        }
-                                                    }
                                                 }
                                             },
                                             enabled = !isSyncing
@@ -240,27 +303,45 @@ class MainActivity : ComponentActivity() {
                                     Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "최근 영업 활동 기록", 
+                                        text = if (selectedDateFilter == null) "최근 영업 활동 기록" else "$selectedDateFilter 기록", 
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
+                                    if (selectedDateFilter != null) {
+                                        Spacer(Modifier.weight(1f))
+                                        TextButton(onClick = { selectedDateFilter = null }) {
+                                            Text("전체보기")
+                                        }
+                                    }
                                 }
 
-                                if (isSyncing && globalTimeline.isEmpty()) {
+                                val filteredTimeline = if (selectedDateFilter == null) {
+                                    globalTimeline
+                                } else {
+                                    globalTimeline.filter { it["timestamp"]?.toString()?.startsWith(selectedDateFilter!!) ?: false }
+                                }
+
+                                if (isSyncing && filteredTimeline.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator()
                                     }
-                                } else if (globalTimeline.isEmpty()) {
+                                } else if (filteredTimeline.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(64.dp), 
                                                  tint = MaterialTheme.colorScheme.outline)
                                             Spacer(modifier = Modifier.height(8.dp))
-                                            Text("기록이 없습니다. 동기화를 진행해 주세요.", color = MaterialTheme.colorScheme.outline)
+                                            Text(
+                                                if (selectedDateFilter == null) "기록이 없습니다. 동기화를 진행해 주세요."
+                                                else "$selectedDateFilter 일의 기록이 없습니다.", 
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
                                         }
                                     }
                                 } else {
+                                    LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
+                                        items(filteredTimeline) { item ->e {
                                     LazyColumn(contentPadding = PaddingValues(bottom = 80.dp)) {
                                         items(globalTimeline) { item ->
                                             TimelineItemCard(
@@ -413,138 +494,26 @@ class MainActivity : ComponentActivity() {
         }
 
         if (missing.isNotEmpty()) {
-            pendingSyncAction = { performSync(setLoadingState) }
+            pendingSyncAction = { enqueueSyncWorker(setLoadingState) }
             requestPermissionLauncher.launch(missing.toTypedArray())
         } else {
-            performSync(setLoadingState)
+            enqueueSyncWorker(setLoadingState)
         }
     }
 
-    private fun performSync(setLoadingState: (Boolean, String?) -> Unit) {
-        val serverDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-
-        lifecycleScope.launch(Dispatchers.Main) {
-            setLoadingState(true, "서버 정보 조회 중...")
-            withContext(Dispatchers.IO) {
-                try {
-                    // 1. Fetch server stats (Fastest way to get EVERYTHING)
-                    val statsResponse = RetrofitClient.apiService.getContactsStats()
-                    if (!statsResponse.isSuccessful) {
-                        withContext(Dispatchers.Main) { 
-                            Toast.makeText(this@MainActivity, "서버 연결에 실패했습니다.", Toast.LENGTH_SHORT).show()
-                            setLoadingState(false, null)
-                        }
-                        return@withContext
-                    }
-                    val initialStats = statsResponse.body() ?: emptyList()
-                    var phoneToData = initialStats.associateBy(
-                        { stat -> normalizePhone(stat["phone_number"]?.toString() ?: "") },
-                        { stat -> stat }
-                    ).toMutableMap()
-
-                    // 2. Identify and Sync NEW Contacts only
-                    withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 검색 중...") }
-                    val localContacts = getAllContacts()
-                    val newContacts = localContacts.filter { 
-                        phoneToData[normalizePhone(it.phone_number)] == null 
-                    }.map { it.copy(phone_number = normalizePhone(it.phone_number)) }
-                    
-                    if (newContacts.isNotEmpty()) {
-                        withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 ${newContacts.size}건 동기화 중...") }
-                        newContacts.chunked(100).forEach { chunk ->
-                            RetrofitClient.apiService.createContactsBulk(chunk)
-                        }
-                        // Refresh phoneToData after creating new contacts so we have their IDs for calls/messages
-                        val refreshStats = RetrofitClient.apiService.getContactsStats()
-                        if (refreshStats.isSuccessful) {
-                            val updatedStats = refreshStats.body() ?: emptyList()
-                            phoneToData = updatedStats.associateBy(
-                                { stat -> normalizePhone(stat["phone_number"]?.toString() ?: "") },
-                                { stat -> stat }
-                            ).toMutableMap()
-                        }
-                    }
-
-                    // 3. Identify and Sync NEW Calls only
-                    withContext(Dispatchers.Main) { setLoadingState(true, "새 통화 기록 검색 중...") }
-                    val allCalls = getAllCallLogs()
-                    val newCallRecords = mutableListOf<CallRecord>()
-                    
-                    allCalls.forEach { call ->
-                        val localPhone = normalizePhone(call.first)
-                        val contactData = phoneToData[localPhone]
-                        val contactId = contactData?.get("id")?.toString()
-                        
-                        val lastCallOnServer = contactData?.get("last_call_at")?.toString()
-                        val localCallAt = serverDateFormat.format(Date(call.third))
-                        
-                        // Sync if it's NEWER than server's last record, or if contact is unknown
-                        if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
-                            newCallRecords.add(CallRecord(
-                                contact_id = contactId,
-                                phone_number = call.first, // Send phone for unknown contact resolution
-                                direction = call.fourth,
-                                duration = call.second,
-                                timestamp = localCallAt
-                            ))
-                        }
-                    }
-                    if (newCallRecords.isNotEmpty()) {
-                        withContext(Dispatchers.Main) { setLoadingState(true, "새 통화 ${newCallRecords.size}건 동기화 중...") }
-                        newCallRecords.chunked(100).forEach { chunk ->
-                            RetrofitClient.apiService.logCallsBulk(chunk)
-                        }
-                    }
-
-                    // 4. Identify and Sync NEW Messages only
-                    withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 내역 검색 중...") }
-                    val allMsgs = getAllSMS()
-                    val newMsgRecords = mutableListOf<MessageRecord>()
-                    
-                    allMsgs.forEach { msg ->
-                        val localPhone = normalizePhone(msg.address)
-                        val contactData = phoneToData[localPhone]
-                        val contactId = contactData?.get("id")?.toString()
-                        
-                        val lastMsgOnServer = contactData?.get("last_message_at")?.toString()
-                        val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
-
-                        if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
-                            newMsgRecords.add(MessageRecord(
-                                contact_id = contactId,
-                                phone_number = msg.address, // Send phone for unknown contact resolution
-                                content = msg.body,
-                                direction = msg.direction,
-                                timestamp = localMsgAt
-                            ))
-                        }
-                    }
-                    if (newMsgRecords.isNotEmpty()) {
-                        withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 ${newMsgRecords.size}건 동기화 중...") }
-                        newMsgRecords.chunked(100).forEach { chunk ->
-                            RetrofitClient.apiService.logMessagesBulk(chunk)
-                        }
-                    }
-
-                    // 5. Recordings (Scan + Upload)
-                    syncCallRecordings(phoneToData) { progress ->
-                        lifecycleScope.launch(Dispatchers.Main) { setLoadingState(true, progress) }
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "모든 데이터 동기화 완료!", Toast.LENGTH_SHORT).show()
-                    }
-                } catch (e: Exception) {
-                    Log.e("SyncError", "Error: ${e.message}")
-                    withContext(Dispatchers.Main) { 
-                        Toast.makeText(this@MainActivity, "오류 발생: ${e.localizedMessage}", Toast.LENGTH_LONG).show() 
-                    }
-                } finally {
-                    withContext(Dispatchers.Main) { setLoadingState(false, null) }
-                }
-            }
-        }
+    private fun enqueueSyncWorker(setLoadingState: (Boolean, String?) -> Unit) {
+        val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+            .addTag("sync")
+            .build()
+        WorkManager.getInstance(this).enqueueUniqueWork(
+            "sync",
+            androidx.work.ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+        Toast.makeText(this, "백그라운드 동기화 시작!", Toast.LENGTH_SHORT).show()
     }
+
+
 
     private fun getAllContacts(): List<Contact> {
         val list = mutableListOf<Contact>()
@@ -600,92 +569,7 @@ class MainActivity : ComponentActivity() {
         return list
     }
 
-    private suspend fun syncCallRecordings(phoneToData: Map<String, Map<String, Any>>, onProgress: (String) -> Unit) {
-        val root = Environment.getExternalStorageDirectory()
-        val searchRoots = arrayOf("Recordings", "Call", "Music", "Sounds", "VoiceRecorder", "TPhone", "Documents", "DCIM", "Download")
-        val audioExtensions = setOf("m4a", "mp3", "amr", "wav", "aac", "ogg", "3gp")
-        val audioFiles = mutableListOf<File>()
 
-        // 1. Scan for audio files locally
-        fun scanDir(dir: File) {
-            if (!dir.exists() || !dir.isDirectory) return
-            dir.listFiles()?.forEach { f ->
-                if (f.isDirectory) {
-                    scanDir(f)
-                } else if (f.extension.lowercase() in audioExtensions) {
-                    audioFiles.add(f)
-                }
-            }
-        }
-
-        searchRoots.forEach { r -> scanDir(File(root, r)) }
-
-        if (audioFiles.isEmpty()) {
-            onProgress("녹음 파일 없음")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@MainActivity, "녹음 동기화 완료! 업로드:0 / 스킵:0", Toast.LENGTH_LONG).show()
-            }
-            return
-        }
-
-        // 1.5 Pre-calculate sets for lightning-fast O(1) lookup
-        // We do this once to avoid heavy list searches 1588 times.
-        val phoneToSyncedSet = phoneToData.mapValues { entry ->
-            @Suppress("UNCHECKED_CAST")
-            (entry.value["synced_recordings"] as? List<String>)?.toHashSet() ?: hashSetOf()
-        }
-
-        var uploadedCount = 0
-        var skippedCount = 0
-
-        // 2. Identify and upload NEW recordings ONLY
-        audioFiles.forEachIndexed { idx, file ->
-            // Update UI every 10 files to maintain maximum execution speed
-            if (idx % 10 == 0 || idx == audioFiles.size - 1) {
-                onProgress("녹음 대조 ${idx + 1}/${audioFiles.size} (스킵:$skippedCount 업로드:$uploadedCount)")
-            }
-            
-            val phone = extractPhoneNumber(file.name)
-            val contactName = extractContactName(file.name)
-            val phonePart = normalizePhone(phone ?: "")
-            
-            // Fast Check: Is this file in our server "pocket" (Set)?
-            val syncedFilesSet = phoneToSyncedSet[phonePart] ?: hashSetOf()
-            
-            if (syncedFilesSet.contains(file.name)) {
-                skippedCount++
-                return@forEachIndexed
-            }
-
-            if (phone == null && contactName == null) {
-                skippedCount++
-                return@forEachIndexed
-            }
-
-            try {
-                // If it's truly new, proceed to slow upload
-                onProgress("녹음 전송 중... (${file.name})")
-                val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
-                val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
-                val phonePartReq = (phone ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
-                val namePartReq = (contactName ?: "AutoScanner").toRequestBody("text/plain".toMediaTypeOrNull())
-
-                val response = RetrofitClient.apiService.uploadRecording(body, phonePartReq, namePartReq)
-                if (response.isSuccessful) {
-                    uploadedCount++
-                } else {
-                    skippedCount++
-                }
-            } catch (e: Exception) {
-                Log.e("Sync", "녹음 업로드 실패 (${file.name}): ${e.message}")
-                skippedCount++
-            }
-        }
-
-        withContext(Dispatchers.Main) {
-            Toast.makeText(this@MainActivity, "녹음 동기화 완료! 업로드:$uploadedCount / 스킵:$skippedCount", Toast.LENGTH_LONG).show()
-        }
-    }
 
     private fun extractPhoneNumber(filename: String): String? {
         // 특수문자 제거 (숫자와 알파벳만 남김)
