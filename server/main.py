@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, File, UploadFile, Form, BackgroundTasks
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -22,6 +22,12 @@ app = FastAPI(title="SalesMind AI CRM API")
 
 # Create tables if they don't exist
 models.Base.metadata.create_all(bind=engine)
+
+# Ensure unique indexes for duplicate prevention (Postgres specific)
+with engine.connect() as conn:
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_call_contact_timestamp ON calls (contact_id, timestamp);"))
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_msg_contact_timestamp_content ON messages (contact_id, timestamp, content);"))
+    conn.commit()
 
 # Mount static files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
