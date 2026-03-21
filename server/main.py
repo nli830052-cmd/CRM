@@ -25,6 +25,21 @@ models.Base.metadata.create_all(bind=engine)
 
 # Ensure unique indexes for duplicate prevention (Postgres specific)
 with engine.connect() as conn:
+    # 1. Clean up existing DUPLICATES first - absolutely required to create a UNIQUE index
+    # We keep only one record per duplicated group.
+    conn.execute(text("""
+        DELETE FROM calls 
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM calls GROUP BY contact_id, timestamp
+        );
+    """))
+    conn.execute(text("""
+        DELETE FROM messages 
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM messages GROUP BY contact_id, timestamp, content
+        );
+    """))
+    # 2. Now create the unique constraint/index
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_call_contact_timestamp ON calls (contact_id, timestamp);"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_msg_contact_timestamp_content ON messages (contact_id, timestamp, content);"))
     conn.commit()
