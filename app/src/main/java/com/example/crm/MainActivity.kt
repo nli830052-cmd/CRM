@@ -55,7 +55,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -114,7 +115,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val response = RetrofitClient.apiService.getContactsStats()
                 if (response.isSuccessful) {
-                    contactStats = response.body() ?: emptyList()
+                    contactStats = (response.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
                 }
             } catch (e: Exception) {
                 Log.e("StatError", "Initial load failed: ${e.message}")
@@ -190,7 +191,7 @@ class MainActivity : ComponentActivity() {
                                                     if (!loading) { // Reload stats after sync completes
                                                         lifecycleScope.launch {
                                                             val res = RetrofitClient.apiService.getContactsStats()
-                                                            if (res.isSuccessful) contactStats = res.body() ?: emptyList()
+                                                            if (res.isSuccessful) contactStats = (res.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
                                                         }
                                                     }
                                                 }
@@ -212,7 +213,7 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         text = "최근 영업 활동 기록", 
@@ -225,7 +226,7 @@ class MainActivity : ComponentActivity() {
                                 if (contactStats.isEmpty() && !isSyncing) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(64.dp), 
+                                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(64.dp), 
                                                  tint = MaterialTheme.colorScheme.outline)
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Text("기록이 없습니다. 동기화를 진행해 주세요.", color = MaterialTheme.colorScheme.outline)
