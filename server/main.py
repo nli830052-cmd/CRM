@@ -473,6 +473,19 @@ async def process_recording_ai(recording_id: str, file_path: str):
         except Exception as e:
             print(f"--- [BG] 오류: AI 분석 프로세스 실패 -> {str(e)} ---")
 
+import hashlib
+
+def calculate_md5(file_obj):
+    """Calculates MD5 hash of a file-like object in chunks."""
+    md5 = hashlib.md5()
+    # Reset file pointer to beginning
+    file_obj.seek(0)
+    for chunk in iter(lambda: file_obj.read(4096), b""):
+        md5.update(chunk)
+    # Reset file pointer for subsequent use
+    file_obj.seek(0)
+    return md5.hexdigest()
+
 @app.post("/recordings/upload/")
 async def upload_recording(
     background_tasks: BackgroundTasks,
@@ -483,9 +496,17 @@ async def upload_recording(
     db: Session = Depends(get_db)
 ):
     """
-    Uploads a call recording file, matches it to a contact by phone_number OR contact_name,
-    and delegates AI analysis to a background task to prevent timeouts.
+    Uploads a call recording file with CONTENT-BASED duplicate detection.
     """
+    # 0. Content Integrity Check (Fingerprinting)
+    file_hash = calculate_md5(file.file)
+    
+    # Check for DUPLICATES by HASH (Absolute duplicate prevention)
+    existing_by_hash = db.query(models.Recording).filter(models.Recording.file_hash == file_hash).first()
+    if existing_by_hash:
+        print(f"--- [INFO] Found duplicate recording by CONTENT (Hash: {file_hash}). Skipping... ---")
+        return {"id": existing_by_hash.id, "status": "skipped", "message": "Content already exists"}
+
     if not phone_number and not contact_name:
         raise HTTPException(status_code=400, detail="phone_number or contact_name is required")
 
@@ -611,6 +632,7 @@ async def upload_recording(
         contact_id=contact.id,
         original_filename=file.filename,
         file_path=file_path,
+        file_hash=file_hash, # Fingerprint stored
         timestamp=rec_time,
         summary="AI 분석 진행 중...", # Initialize summary
         transcription="대기 중" # Initialize transcription

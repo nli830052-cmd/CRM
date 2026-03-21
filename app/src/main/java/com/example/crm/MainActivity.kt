@@ -117,21 +117,22 @@ class MainActivity : ComponentActivity() {
         // Fetch initial stats when dashboard opens
         LaunchedEffect(Unit) {
             try {
-                scope.launch {
-                    val resStats = RetrofitClient.apiService.getContactsStats()
-                    if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
-                }
-                scope.launch {
-                    val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
-                    if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
-                }
+                isSyncing = true
+                val resStats = RetrofitClient.apiService.getContactsStats()
+                if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
+                
+                val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                isSyncing = false
             } catch (e: Exception) {
+                isSyncing = false
                 Log.e("LoadError", "Initial load failed: ${e.message}")
             }
         }
 
         ModalNavigationDrawer(
             drawerState = drawerState,
+            gesturesEnabled = false,
             drawerContent = {
                 ModalDrawerSheet(modifier = Modifier.width(320.dp)) {
                     Spacer(Modifier.height(24.dp))
@@ -237,7 +238,11 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                if (globalTimeline.isEmpty() && !isSyncing) {
+                                if (isSyncing && globalTimeline.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator()
+                                    }
+                                } else if (globalTimeline.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(64.dp), 
@@ -294,6 +299,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     @Composable
     fun TimelineItemCard(item: Map<String, Any>, onClick: () -> Unit) {
         val type = item["type"]?.toString() ?: "call"

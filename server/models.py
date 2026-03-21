@@ -63,6 +63,7 @@ class Recording(Base):
     contact_id = Column(String, ForeignKey("contacts.id"))
     original_filename = Column(String, index=True)
     file_path = Column(String)
+    file_hash = Column(String, index=True, nullable=True) # Content-based fingerprint
     summary = Column(Text, nullable=True)
     transcription = Column(Text, nullable=True)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
