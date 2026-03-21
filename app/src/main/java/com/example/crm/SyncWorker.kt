@@ -125,19 +125,32 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         
         val files = recordingsDir.listFiles { f -> f.isFile && (f.extension == "m4a" || f.extension == "amr" || f.extension == "mp3") } ?: return
         
+        setProgress(workDataOf("status" to "동기화된 파일 분류 중..."))
+        
         val phoneToSyncedSet = phoneToData.mapValues { entry ->
             @Suppress("UNCHECKED_CAST")
             (entry.value["synced_recordings"] as? List<String>)?.toHashSet() ?: hashSetOf()
         }
 
-        files.forEachIndexed { index, file ->
-            val progress = "녹음 파일 동기화 중 (${index+1}/${files.size})"
+        // Filter files that are NOT synced yet
+        val unsyncedFiles = files.filter { file ->
+            val phone = extractPhoneNumber(file.name) ?: return@filter false
+            val cleanPhone = normalizePhone(phone)
+            phoneToSyncedSet[cleanPhone]?.contains(file.name) != true
+        }
+
+        val totalToUpload = unsyncedFiles.size
+        if (totalToUpload == 0) {
+            setProgress(workDataOf("status" to "모든 녹음 파일이 이미 업로드되었습니다."))
+            return
+        }
+
+        unsyncedFiles.forEachIndexed { index, file ->
+            val progress = "신규 녹음 파일 업로드 중: ${index + 1} / ${totalToUpload}개"
             setProgress(workDataOf("status" to progress))
             
             val phone = extractPhoneNumber(file.name) ?: return@forEachIndexed
             val cleanPhone = normalizePhone(phone)
-            
-            if (phoneToSyncedSet[cleanPhone]?.contains(file.name) == true) return@forEachIndexed
             
             try {
                 val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
@@ -150,6 +163,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 Log.e("SyncWorker", "File upload failed: ${file.name}")
             }
         }
+        setProgress(workDataOf("status" to "${totalToUpload}개의 최신 파일 동기화 완료!"))
     }
 
     private fun normalizePhone(number: String): String {

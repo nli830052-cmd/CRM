@@ -181,14 +181,17 @@ class MainActivity : ComponentActivity() {
 
         LaunchedEffect(Unit) {
             try {
-                if (!isSyncing) {
+                // Fetch existing data always on start, so user doesn't see a blank screen
+                launch {
                     val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
                     if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                }
+                launch {
                     val resStats = RetrofitClient.apiService.getContactsStats()
                     if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
                 }
             } catch (e: Exception) {
-                Log.e("Error", e.message ?: "")
+                Log.e("LoadError", "Initial fetch failed: ${e.message}")
             }
         }
 
@@ -284,12 +287,26 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 
-                                if (filteredTimeline.isEmpty() && !isSyncing) {
+                                if (globalTimeline.isEmpty() && isSyncing) {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("기록이 없습니다.")
+                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                             CircularProgressIndicator()
+                                             Spacer(Modifier.height(16.dp))
+                                             Text(syncProgress, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                                             Text("핸드폰의 활동(통화/문자/녹음)을 클라우드로 전송 중입니다.", 
+                                                  style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                         }
+                                    }
+                                } else if (filteredTimeline.isEmpty()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(64.dp), tint = Color.Gray)
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(if (selectedDateFilter == null) "활동 기록이 없습니다." else "$selectedDateFilter 일의 기록이 없습니다.", color = Color.Gray)
+                                        }
                                     }
                                 } else {
-                                    LazyColumn {
+                                    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
                                         items(filteredTimeline) { item ->
                                             TimelineItemCard(item) {
                                                 selectedContactId = item["contact_id"]?.toString() ?: ""
