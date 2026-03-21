@@ -72,8 +72,9 @@ import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 
-// Helper Data Class for SMS
+// Helper Data Classes
 data class SmsItem(val address: String, val body: String, val direction: String, val dateLong: Long)
+data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 class MainActivity : ComponentActivity() {
 
@@ -259,7 +260,7 @@ class MainActivity : ComponentActivity() {
                                     isSyncing = b
                                     if (s != null) syncProgress = s
                                 } }, enabled = !isSyncing) {
-                                    if (isSyncing) CircularProgressIndicator(size = 24.dp)
+                                    if (isSyncing) CircularProgressIndicator(modifier = Modifier.size(24.dp))
                                     else Icon(Icons.Default.Refresh, contentDescription = null)
                                 }
                             }
@@ -325,6 +326,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("UNCHECKED_CAST")
     @Composable
     fun TimelineItemCard(item: Map<String, Any>, onClick: () -> Unit) {
         val type = item["type"]?.toString() ?: "call"
@@ -380,7 +382,4 @@ class MainActivity : ComponentActivity() {
         WorkManager.getInstance(this).enqueueUniqueWork("sync", androidx.work.ExistingWorkPolicy.REPLACE, req)
         Toast.makeText(this, "백그라운드 동기화 시작!", Toast.LENGTH_SHORT).show()
     }
-
-    // Unused but kept for structure compatibility
-    data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 }

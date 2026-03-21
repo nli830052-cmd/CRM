@@ -27,6 +27,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
 
     private val serverDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
+    @Suppress("UNCHECKED_CAST")
     override suspend fun doWork(): Result {
         return withContext(Dispatchers.IO) {
             try {
@@ -38,8 +39,8 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 
                 val initialStats = statsResponse.body() ?: emptyList()
                 var phoneToData = initialStats.associateBy(
-                    { stat -> normalizePhone(stat["phone_number"]?.toString() ?: "") },
-                    { stat -> stat }
+                    { stat -> normalizePhone((stat as Map<String, Any>)["phone_number"]?.toString() ?: "") },
+                    { stat -> stat as Map<String, Any> }
                 ).toMutableMap()
 
                 // 2. Sync Contacts
@@ -56,7 +57,8 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                     val refreshStats = RetrofitClient.apiService.getContactsStats()
                     if (refreshStats.isSuccessful) {
                         phoneToData = (refreshStats.body() ?: emptyList()).associateBy(
-                            { it["phone_number"]?.toString() ?: "" }, { it }
+                            { it -> normalizePhone((it as Map<String, Any>)["phone_number"]?.toString() ?: "") }, 
+                            { it -> it as Map<String, Any> }
                         ).toMutableMap()
                     }
                 }
@@ -69,11 +71,11 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                     val contactData = phoneToData[normalizePhone(call.first)]
                     val lastCallOnServer = contactData?.get("last_call_at")?.toString()
                     val localCallAt = serverDateFormat.format(Date(call.third))
-                    if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
+                    if (contactData != null && (lastCallOnServer == null || localCallAt > lastCallOnServer)) {
                         newCallRecords.add(CallRecord(
                             duration = call.second,
                             timestamp = localCallAt,
-                            contact_id = contactData?.get("id")?.toString(),
+                            contact_id = contactData["id"]?.toString(),
                             phone_number = call.first,
                             direction = call.fourth
                         ))
@@ -91,11 +93,11 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                     val contactData = phoneToData[normalizePhone(msg.address)]
                     val lastMsgOnServer = contactData?.get("last_message_at")?.toString()
                     val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
-                    if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
+                    if (contactData != null && (lastMsgOnServer == null || localMsgAt > lastMsgOnServer)) {
                         newMsgRecords.add(MessageRecord(
                             content = msg.body,
                             timestamp = localMsgAt,
-                            contact_id = contactData?.get("id")?.toString(),
+                            contact_id = contactData["id"]?.toString(),
                             phone_number = msg.address,
                             direction = msg.direction
                         ))
@@ -105,7 +107,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                      newMsgRecords.chunked(100).forEach { RetrofitClient.apiService.logMessagesBulk(it) }
                 }
 
-                // 5. Sync recordings (Wait! this is the long part)
+                // 5. Sync recordings
                 syncRecordings(phoneToData)
 
                 Log.i("SyncWorker", "Background sync completed successfully!")
@@ -117,7 +119,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         }
     }
 
-    private suspend fun syncRecordings(phoneToData: Map<String, Any>) {
+    private suspend fun syncRecordings(phoneToData: Map<String, Map<String, Any>>) {
         val recordingsDir = File(Environment.getExternalStorageDirectory(), "Recordings/Call")
         if (!recordingsDir.exists()) return
         
@@ -135,10 +137,8 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
             val phone = extractPhoneNumber(file.name) ?: return@forEachIndexed
             val cleanPhone = normalizePhone(phone)
             
-            // Check by filename first
             if (phoneToSyncedSet[cleanPhone]?.contains(file.name) == true) return@forEachIndexed
             
-            // Upload
             try {
                 val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
@@ -152,7 +152,6 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         }
     }
 
-    // Helper functions (Copied from MainActivity)
     private fun normalizePhone(number: String): String {
         val clean = number.replace(Regex("[^0-9]"), "")
         return when {
@@ -177,8 +176,8 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         return list
     }
 
-    private fun getAllCallLogs(): List<MainActivity.Quadruple<String, Int, Long, String>> {
-        val list = mutableListOf<MainActivity.Quadruple<String, Int, Long, String>>()
+    private fun getAllCallLogs(): List<Quadruple<String, Int, Long, String>> {
+        val list = mutableListOf<Quadruple<String, Int, Long, String>>()
         val it = applicationContext.contentResolver.query(CallLog.Calls.CONTENT_URI, null, null, null, "${CallLog.Calls.DATE} DESC")
         it?.use { cursor ->
             val numIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
@@ -191,14 +190,14 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 val date = cursor.getLong(dateIdx)
                 val type = cursor.getInt(typeIdx)
                 val dir = if (type == CallLog.Calls.INCOMING_TYPE) "IN" else "OUT"
-                list.add(MainActivity.Quadruple(num, dur, date, dir))
+                list.add(Quadruple(num, dur, date, dir))
             }
         }
         return list
     }
 
-    private fun getAllSMS(): List<MainActivity.SmsItem> {
-        val list = mutableListOf<MainActivity.SmsItem>()
+    private fun getAllSMS(): List<SmsItem> {
+        val list = mutableListOf<SmsItem>()
         val it = applicationContext.contentResolver.query(Uri.parse("content://sms"), null, null, null, "date DESC")
         it?.use { cursor ->
             val addrIdx = cursor.getColumnIndex("address")
@@ -207,7 +206,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
             val dateIdx = cursor.getColumnIndex("date")
             while (cursor.moveToNext()) {
                 val dir = if (cursor.getInt(typeIdx) == 1) "INBOX" else "SENT"
-                list.add(MainActivity.SmsItem(address = cursor.getString(addrIdx) ?: "", body = cursor.getString(bodyIdx) ?: "", direction = dir, dateLong = cursor.getLong(dateIdx)))
+                list.add(SmsItem(address = cursor.getString(addrIdx) ?: "", body = cursor.getString(bodyIdx) ?: "", direction = dir, dateLong = cursor.getLong(dateIdx)))
             }
         }
         return list
@@ -223,7 +222,11 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
     }
 
     private fun extractContactName(filename: String): String? {
-        val name = filename.substringBeforeLast(".")
-        return name.substringBeforeLast("_")
+        var name = filename.substringBeforeLast(".")
+        name = name.removePrefix("통화 녹음 ").removePrefix("통화녹음 ")
+        name = name.replace(Regex("_\\d{6,8}_\\d{4,6}$"), "").trim()
+        val digitCount = name.count { it.isDigit() }
+        if (digitCount > name.length / 2) return null
+        return name.trim().ifEmpty { null }
     }
 }
