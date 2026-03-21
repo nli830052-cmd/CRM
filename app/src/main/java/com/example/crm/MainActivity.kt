@@ -252,28 +252,41 @@ class MainActivity : ComponentActivity() {
         val serverDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
         lifecycleScope.launch(Dispatchers.Main) {
-            setLoadingState(true, "시작 중")
+            setLoadingState(true, "서버 정보 조회 중...")
             withContext(Dispatchers.IO) {
                 try {
-                    // 1. Contacts
-                    val localContacts = getAllContacts()
-                    if (localContacts.isNotEmpty()) {
-                        localContacts.chunked(100).forEachIndexed { idx, chunk ->
-                            RetrofitClient.apiService.createContactsBulk(chunk)
-                            withContext(Dispatchers.Main) { setLoadingState(true, "주소록 ${idx*100}/${localContacts.size}") }
+                    // 1. Fetch server stats (Fastest way to get EVERYTHING)
+                    val statsResponse = RetrofitClient.apiService.getContactsStats()
+                    if (!statsResponse.isSuccessful) {
+                        withContext(Dispatchers.Main) { 
+                            Toast.makeText(this@MainActivity, "서버 연결에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                            setLoadingState(false, null)
                         }
+                        return@withContext
                     }
-
-                    // 2. Fetch for Mapping & Incremental Sync (Newer than last known server timestamp)
-                    val contactStats = RetrofitClient.apiService.getContactsStats().body() ?: emptyList()
+                    val contactStats = statsResponse.body() ?: emptyList()
                     val phoneToData = contactStats.associateBy(
                         { it["phone_number"]?.toString()?.replace(Regex("[^0-9]"), "") ?: "" },
                         { it }
                     )
 
-                    // 3. Call Logs (Bulk)
+                    // 2. Identify and Sync NEW Contacts only
+                    withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 검색 중...") }
+                    val localContacts = getAllContacts()
+                    val newContacts = localContacts.filter { phoneToData[it.phone_number] == null }
+                    
+                    if (newContacts.isNotEmpty()) {
+                        withContext(Dispatchers.Main) { setLoadingState(true, "신규 연락처 ${newContacts.size}건 동기화 중...") }
+                        newContacts.chunked(100).forEach { chunk ->
+                            RetrofitClient.apiService.createContactsBulk(chunk)
+                        }
+                    }
+
+                    // 3. Identify and Sync NEW Calls only
+                    withContext(Dispatchers.Main) { setLoadingState(true, "새 통화 기록 검색 중...") }
                     val allCalls = getAllCallLogs()
-                    val validCallRecords = mutableListOf<CallRecord>()
+                    val newCallRecords = mutableListOf<CallRecord>()
+                    
                     allCalls.forEach { call ->
                         val contactData = phoneToData[call.first.replace(Regex("[^0-9]"), "")]
                         val contactId = contactData?.get("id")?.toString()
@@ -281,9 +294,9 @@ class MainActivity : ComponentActivity() {
                             val lastCallOnServer = contactData["last_call_at"]?.toString()
                             val localCallAt = serverDateFormat.format(Date(call.third))
                             
-                            // Only add if it's a NEW call
+                            // Only send if NEWER than server's last recorded call
                             if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
-                                validCallRecords.add(CallRecord(
+                                newCallRecords.add(CallRecord(
                                     contact_id = contactId,
                                     direction = call.fourth,
                                     duration = call.second,
@@ -292,16 +305,18 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    if (validCallRecords.isNotEmpty()) {
-                        validCallRecords.chunked(100).forEachIndexed { idx, chunk ->
+                    if (newCallRecords.isNotEmpty()) {
+                        withContext(Dispatchers.Main) { setLoadingState(true, "새 통화 ${newCallRecords.size}건 동기화 중...") }
+                        newCallRecords.chunked(100).forEach { chunk ->
                             RetrofitClient.apiService.logCallsBulk(chunk)
-                            withContext(Dispatchers.Main) { setLoadingState(true, "통화 ${idx*100}/${validCallRecords.size}") }
                         }
                     }
 
-                    // 4. SMS (Bulk)
+                    // 4. Identify and Sync NEW Messages only
+                    withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 내역 검색 중...") }
                     val allMsgs = getAllSMS()
-                    val validMsgRecords = mutableListOf<MessageRecord>()
+                    val newMsgRecords = mutableListOf<MessageRecord>()
+                    
                     allMsgs.forEach { msg ->
                         val contactData = phoneToData[msg.address.replace(Regex("[^0-9]"), "")]
                         val contactId = contactData?.get("id")?.toString()
@@ -309,9 +324,9 @@ class MainActivity : ComponentActivity() {
                             val lastMsgOnServer = contactData["last_message_at"]?.toString()
                             val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
 
-                            // Only add if it's a NEW message
+                            // Only send if NEWER than server's last recorded message
                             if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
-                                validMsgRecords.add(MessageRecord(
+                                newMsgRecords.add(MessageRecord(
                                     contact_id = contactId,
                                     content = msg.body,
                                     direction = msg.direction,
@@ -320,14 +335,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    if (validMsgRecords.isNotEmpty()) {
-                        validMsgRecords.chunked(100).forEachIndexed { idx, chunk ->
+                    if (newMsgRecords.isNotEmpty()) {
+                        withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 ${newMsgRecords.size}건 동기화 중...") }
+                        newMsgRecords.chunked(100).forEach { chunk ->
                             RetrofitClient.apiService.logMessagesBulk(chunk)
-                            withContext(Dispatchers.Main) { setLoadingState(true, "문자 ${idx*100}/${validMsgRecords.size}") }
                         }
                     }
 
-                    // 5. Recordings
+                    // 5. Recordings (Scan + Upload)
                     syncCallRecordings { progress ->
                         lifecycleScope.launch(Dispatchers.Main) { setLoadingState(true, progress) }
                     }
