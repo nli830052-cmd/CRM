@@ -424,7 +424,7 @@ class MainActivity : ComponentActivity() {
         val audioExtensions = setOf("m4a", "mp3", "amr", "wav", "aac", "ogg", "3gp")
         val audioFiles = mutableListOf<File>()
 
-        // 1. Scan for audio files
+        // 1. Scan for audio files locally
         fun scanDir(dir: File) {
             if (!dir.exists() || !dir.isDirectory) return
             dir.listFiles()?.forEach { f ->
@@ -446,23 +446,31 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 1.5 Pre-calculate sets for lightning-fast O(1) lookup
+        // We do this once to avoid heavy list searches 1588 times.
+        val phoneToSyncedSet = phoneToData.mapValues { entry ->
+            @Suppress("UNCHECKED_CAST")
+            (entry.value["synced_recordings"] as? List<String>)?.toHashSet() ?: hashSetOf()
+        }
+
         var uploadedCount = 0
         var skippedCount = 0
 
-        // 2. Identify and upload NEW recordings only
+        // 2. Identify and upload NEW recordings ONLY
         audioFiles.forEachIndexed { idx, file ->
-            onProgress("녹음 체크 ${idx + 1}/${audioFiles.size} (업로드:$uploadedCount)")
+            // Update UI every 10 files to maintain maximum execution speed
+            if (idx % 10 == 0 || idx == audioFiles.size - 1) {
+                onProgress("녹음 대조 ${idx + 1}/${audioFiles.size} (스킵:$skippedCount 업로드:$uploadedCount)")
+            }
             
             val phone = extractPhoneNumber(file.name)
             val contactName = extractContactName(file.name)
             val phonePart = phone?.replace(Regex("[^0-9]"), "") ?: ""
             
-            // Check Server Stats for this phone's synced files
-            val contactData = if (phonePart.isNotEmpty()) phoneToData[phonePart] else null
-            @Suppress("UNCHECKED_CAST")
-            val syncedFiles = contactData?.get("synced_recordings") as? List<String> ?: emptyList()
+            // Fast Check: Is this file in our server "pocket" (Set)?
+            val syncedFilesSet = phoneToSyncedSet[phonePart] ?: hashSetOf()
             
-            if (syncedFiles.contains(file.name)) {
+            if (syncedFilesSet.contains(file.name)) {
                 skippedCount++
                 return@forEachIndexed
             }
@@ -473,6 +481,8 @@ class MainActivity : ComponentActivity() {
             }
 
             try {
+                // If it's truly new, proceed to slow upload
+                onProgress("녹음 전송 중... (${file.name})")
                 val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
                 val phonePartReq = (phone ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
