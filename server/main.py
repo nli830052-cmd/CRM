@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, File, UploadFile, Form, BackgroundTasks
-from sqlalchemy import or_, text
+from sqlalchemy import or_, text, func
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -262,34 +262,53 @@ async def get_ai_summary(contact_id: str, db: Session = Depends(get_db)):
 def get_contacts_stats(db: Session = Depends(get_db)):
     """
     Returns contacts with interaction counts and last contact dates.
+    Optimized version using SUBQUERIES to prevent N+1 performance issues.
     """
-    contacts = db.query(models.Contact).all()
+    # 1. Summary of calls per contact
+    call_stats = db.query(
+        models.Call.contact_id,
+        func.count(models.Call.id).label("c_count"),
+        func.max(models.Call.timestamp).label("c_last")
+    ).group_by(models.Call.contact_id).subquery()
+
+    # 2. Summary of messages per contact
+    msg_stats = db.query(
+        models.Message.contact_id,
+        func.count(models.Message.id).label("m_count"),
+        func.max(models.Message.timestamp).label("m_last")
+    ).group_by(models.Message.contact_id).subquery()
+
+    # 3. Final Query joining Contacts with grouped stats
+    results = db.query(
+        models.Contact,
+        call_stats.c.c_count,
+        call_stats.c.c_last,
+        msg_stats.c.m_count,
+        msg_stats.c.m_last
+    ).outerjoin(call_stats, models.Contact.id == call_stats.c.contact_id) \
+     .outerjoin(msg_stats, models.Contact.id == msg_stats.c.contact_id) \
+     .all()
+
     stats = []
-    
-    for contact in contacts:
-        # Count calls and messages
-        call_count = db.query(models.Call).filter(models.Call.contact_id == contact.id).count()
-        msg_count = db.query(models.Message).filter(models.Message.contact_id == contact.id).count()
+    for contact, c_cnt, c_last, m_cnt, m_last in results:
+        # Calculate derived values
+        total_freq = (c_cnt or 0) + (m_cnt or 0)
         
-        # Get last interaction date from both calls and messages
-        last_call = db.query(models.Call).filter(models.Call.contact_id == contact.id).order_by(models.Call.timestamp.desc()).first()
-        last_msg = db.query(models.Message).filter(models.Message.contact_id == contact.id).order_by(models.Message.timestamp.desc()).first()
-        
+        # Determine the absolute latest interaction date
         last_date = None
-        if last_call and last_msg:
-            last_date = max(last_call.timestamp, last_msg.timestamp)
-        elif last_call:
-            last_date = last_call.timestamp
-        elif last_msg:
-            last_date = last_msg.timestamp
+        if c_last and m_last: last_date = max(c_last, m_last)
+        elif c_last: last_date = c_last
+        elif m_last: last_date = m_last
 
         stats.append({
             "id": contact.id,
             "name": contact.name,
             "phone_number": contact.phone_number,
             "organization": contact.organization,
-            "frequency": call_count + msg_count,
-            "last_contact": last_date.isoformat() if last_date else "N/A"
+            "frequency": total_freq,
+            "last_contact": last_date.strftime("%Y-%m-%d %H:%M:%S") if last_date else "N/A",
+            "last_call_at": c_last.strftime("%Y-%m-%d %H:%M:%S") if c_last else None,
+            "last_message_at": m_last.strftime("%Y-%m-%d %H:%M:%S") if m_last else None
         })
         
     return stats

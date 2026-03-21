@@ -264,11 +264,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // 2. Fetch for Mapping
-                    // 경량 map API 사용: id+phone_number만 반환 → N+1 쿼리 없음
-                    val contactMap = RetrofitClient.apiService.getContactsMap().body() ?: emptyList()
-                    val phoneToId = contactMap.associateBy(
-                        { it["phone_number"]?.replace(Regex("[^0-9]"), "") ?: "" },
+                    // 2. Fetch for Mapping & Incremental Sync (Newer than last known server timestamp)
+                    val contactStats = RetrofitClient.apiService.getContactsStats().body() ?: emptyList()
+                    val phoneToData = contactStats.associateBy(
+                        { it["phone_number"]?.toString()?.replace(Regex("[^0-9]"), "") ?: "" },
                         { it }
                     )
 
@@ -276,15 +275,21 @@ class MainActivity : ComponentActivity() {
                     val allCalls = getAllCallLogs()
                     val validCallRecords = mutableListOf<CallRecord>()
                     allCalls.forEach { call ->
-                        val contact = phoneToId[call.first.replace(Regex("[^0-9]"), "")]
-                        val contactId = contact?.get("id")
+                        val contactData = phoneToData[call.first.replace(Regex("[^0-9]"), "")]
+                        val contactId = contactData?.get("id")?.toString()
                         if (contactId != null) {
-                            validCallRecords.add(CallRecord(
-                                contact_id = contactId,
-                                direction = call.fourth,
-                                duration = call.second,
-                                timestamp = serverDateFormat.format(Date(call.third))
-                            ))
+                            val lastCallOnServer = contactData["last_call_at"]?.toString()
+                            val localCallAt = serverDateFormat.format(Date(call.third))
+                            
+                            // Only add if it's a NEW call
+                            if (lastCallOnServer == null || localCallAt > lastCallOnServer) {
+                                validCallRecords.add(CallRecord(
+                                    contact_id = contactId,
+                                    direction = call.fourth,
+                                    duration = call.second,
+                                    timestamp = localCallAt
+                                ))
+                            }
                         }
                     }
                     if (validCallRecords.isNotEmpty()) {
@@ -298,15 +303,21 @@ class MainActivity : ComponentActivity() {
                     val allMsgs = getAllSMS()
                     val validMsgRecords = mutableListOf<MessageRecord>()
                     allMsgs.forEach { msg ->
-                        val contact = phoneToId[msg.address.replace(Regex("[^0-9]"), "")]
-                        val contactId = contact?.get("id")
+                        val contactData = phoneToData[msg.address.replace(Regex("[^0-9]"), "")]
+                        val contactId = contactData?.get("id")?.toString()
                         if (contactId != null) {
-                            validMsgRecords.add(MessageRecord(
-                                contact_id = contactId,
-                                content = msg.body,
-                                direction = msg.direction,
-                                timestamp = serverDateFormat.format(Date(msg.dateLong))
-                            ))
+                            val lastMsgOnServer = contactData["last_message_at"]?.toString()
+                            val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
+
+                            // Only add if it's a NEW message
+                            if (lastMsgOnServer == null || localMsgAt > lastMsgOnServer) {
+                                validMsgRecords.add(MessageRecord(
+                                    contact_id = contactId,
+                                    content = msg.body,
+                                    direction = msg.direction,
+                                    timestamp = localMsgAt
+                                ))
+                            }
                         }
                     }
                     if (validMsgRecords.isNotEmpty()) {
