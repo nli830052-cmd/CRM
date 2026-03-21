@@ -25,6 +25,10 @@ models.Base.metadata.create_all(bind=engine)
 
 # Ensure unique indexes for duplicate prevention (Postgres specific)
 with engine.connect() as conn:
+    # 0. ENSURE 'original_filename' column exists (Manual Migration)
+    conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
+    conn.commit()
+
     # 1. Clean up existing DUPLICATES first - absolutely required to create a UNIQUE index
     # We keep only one record per duplicated group.
     conn.execute(text("""
