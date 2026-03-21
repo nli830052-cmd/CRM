@@ -44,6 +44,10 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.viewinterop.AndroidView
 
 // Helper Data Class for SMS
 data class SmsItem(val address: String, val body: String, val direction: String, val dateLong: Long)
@@ -76,13 +80,15 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun AppScreen() {
         var screenState by remember { mutableStateOf("Main") }
+        var selectedContactId by remember { mutableStateOf("") }
         var contactStats by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
 
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            if (screenState == "Main") {
-                Box(contentAlignment = Alignment.Center) {
+            when (screenState) {
+                "Main" -> {
+                    Box(contentAlignment = Alignment.Center) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(20.dp),
                         verticalArrangement = Arrangement.Center,
@@ -130,14 +136,43 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-            } else {
-                ContactTableView(stats = contactStats) { screenState = "Main" }
+                "Table" -> {
+                    ContactTableView(stats = contactStats, onRowClick = { id ->
+                        selectedContactId = id
+                        screenState = "Detail"
+                    }, onBack = { screenState = "Main" })
+                }
+                "Detail" -> {
+                    AnalysisWebView(contactId = selectedContactId) { screenState = "Table" }
+                }
             }
         }
     }
 
     @Composable
-    fun ContactTableView(stats: List<Map<String, Any>>, onBack: () -> Unit) {
+    fun AnalysisWebView(contactId: String, onBack: () -> Unit) {
+        val url = "https://crm-f2v6.onrender.com/?id=$contactId"
+        
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(10.dp)) {
+                Button(onClick = onBack) { Text("닫기") }
+                Spacer(modifier = Modifier.width(15.dp))
+                Text("AI 대화 이력 분석", style = MaterialTheme.typography.titleLarge)
+            }
+            
+            AndroidView(factory = { context ->
+                WebView(context).apply {
+                    webViewClient = WebViewClient()
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    loadUrl(url)
+                }
+            }, modifier = Modifier.fillMaxSize())
+        }
+    }
+
+    @Composable
+    fun ContactTableView(stats: List<Map<String, Any>>, onRowClick: (String) -> Unit, onBack: () -> Unit) {
         Column(modifier = Modifier.fillMaxSize().padding(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text("< 뒤로가기") }
@@ -159,7 +194,11 @@ class MainActivity : ComponentActivity() {
 
                 LazyColumn {
                     items(stats) { item ->
-                        Row(modifier = Modifier.padding(8.dp)) {
+                        val contactId = item["id"]?.toString() ?: ""
+                        Row(modifier = Modifier
+                            .padding(8.dp)
+                            .clickable { if (contactId.isNotEmpty()) onRowClick(contactId) }
+                        ) {
                             TableCell(item["name"]?.toString() ?: "NoName", 100.dp)
                             TableCell(item["organization"]?.toString() ?: "-", 120.dp)
                             val freq = (item["frequency"] as? Number)?.toInt() ?: 0

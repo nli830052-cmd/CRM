@@ -104,6 +104,27 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .hidden { display: none !important; }
 
+        /* Mobile Responsive Overrides */
+        @media (max-width: 768px) {
+            body { flex-direction: column; overflow-y: auto; height: auto; }
+            aside { width: 100%; padding: 1.5rem; height: auto; flex-direction: row; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border); }
+            .logo { margin-bottom: 0; font-size: 1.1rem; }
+            .nav-label, .nav-link span { display: none; }
+            .nav-link { padding: 10px; margin: 0; }
+            
+            main { flex-direction: column; width: 100%; min-height: 100vh; }
+            .list-section { width: 100%; border-right: none; border-bottom: 1px solid var(--border); max-height: 400px; display: none; } /* Hide list on detail if needed */
+            .list-section.active-mobile { display: flex; max-height: none; }
+            
+            .detail-section { padding: 1.5rem; }
+            .profile-hdr h1 { font-size: 2rem; }
+            .main-stat-val { font-size: 3.5rem; }
+            .modal-box { padding: 1.5rem; border-radius: 20px; }
+            
+            .event-card { padding: 1rem; border-radius: 12px; }
+            .event-content { font-size: 0.85rem; }
+        }
+
         /* Section Headings */
         .h-sec { font-size: 0.8rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
         /* ... 기존 스타일 유지 하되 아래 추가/수정 ... */
@@ -238,6 +259,23 @@
             await fetchStats();
             await fetchContactsList(true); // Initial load
             setupInfiniteScroll();
+
+            // URL 파라미터에 id= 가 있으면 바로 상세 페이지로 이동 (앱 연동용)
+            const urlParams = new URLSearchParams(window.location.search);
+            const directId = urlParams.get('id');
+            if (directId) {
+                // 특정 연락처를 강제로 로드하여 표시
+                try {
+                    const res = await fetch(`${API}/contacts/`);
+                    const data = await res.json();
+                    const contact = data.find(c => c.id == directId);
+                    if (contact) {
+                        selectContact(contact);
+                        // 모바일에서는 목록 숨기기
+                        document.querySelector('.list-section').style.display = 'none';
+                    }
+                } catch(e) { console.error("Auto Load Error:", e); }
+            }
         }
 
         async function fetchStats() {

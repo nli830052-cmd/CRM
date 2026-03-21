@@ -3,8 +3,9 @@ uvicorn[standard]
 sqlalchemy
 psycopg2-binary
 python-dotenv
-google-genai
+google-generativeai
 python-multipart
 jinja2
 pydantic
 cloudinary
+requests
