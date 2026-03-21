@@ -330,11 +330,6 @@ class MainActivity : ComponentActivity() {
                                     contact_id = contactId,
                                     content = msg.body,
                                     direction = msg.direction,
-                                    timestamp = localMsgAt
-                                ))
-                            }
-                        }
-                    }
                     if (newMsgRecords.isNotEmpty()) {
                         withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 ${newMsgRecords.size}건 동기화 중...") }
                         newMsgRecords.chunked(100).forEach { chunk ->
@@ -343,7 +338,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     // 5. Recordings (Scan + Upload)
-                    syncCallRecordings { progress ->
+                    syncCallRecordings(phoneToData) { progress ->
                         lifecycleScope.launch(Dispatchers.Main) { setLoadingState(true, progress) }
                     }
 
@@ -352,7 +347,9 @@ class MainActivity : ComponentActivity() {
                     }
                 } catch (e: Exception) {
                     Log.e("SyncError", "Error: ${e.message}")
-                    withContext(Dispatchers.Main) { Toast.makeText(this@MainActivity, "오류 발생: ${e.localizedMessage}", Toast.LENGTH_LONG).show() }
+                    withContext(Dispatchers.Main) { 
+                        Toast.makeText(this@MainActivity, "오류 발생: ${e.localizedMessage}", Toast.LENGTH_LONG).show() 
+                    }
                 } finally {
                     withContext(Dispatchers.Main) { setLoadingState(false, null) }
                 }
@@ -383,7 +380,6 @@ class MainActivity : ComponentActivity() {
             val durIdx = it.getColumnIndex(CallLog.Calls.DURATION)
             val dateIdx = it.getColumnIndex(CallLog.Calls.DATE)
             val typeIdx = it.getColumnIndex(CallLog.Calls.TYPE)
-            var count = 0
             while (it.moveToNext()) {
                 val num = it.getString(numIdx) ?: ""
                 val dur = it.getInt(durIdx)
@@ -407,7 +403,6 @@ class MainActivity : ComponentActivity() {
             val bodyIdx = it.getColumnIndex("body")
             val typeIdx = it.getColumnIndex("type")
             val dateIdx = it.getColumnIndex("date")
-            var count = 0
             while (it.moveToNext()) {
                 val dir = if (it.getInt(typeIdx) == 1) "INBOX" else "SENT"
                 list.add(SmsItem(address = it.getString(addrIdx) ?: "", body = it.getString(bodyIdx) ?: "", direction = dir, dateLong = it.getLong(dateIdx)))
@@ -416,18 +411,18 @@ class MainActivity : ComponentActivity() {
         return list
     }
 
-    private suspend fun syncCallRecordings(onProgress: (String) -> Unit) {
+    private suspend fun syncCallRecordings(phoneToData: Map<String, Map<String, Any>>, onProgress: (String) -> Unit) {
         val root = Environment.getExternalStorageDirectory()
         val searchRoots = arrayOf("Recordings", "Call", "Music", "Sounds", "VoiceRecorder", "TPhone", "Documents", "DCIM", "Download")
         val audioExtensions = setOf("m4a", "mp3", "amr", "wav", "aac", "ogg", "3gp")
         val audioFiles = mutableListOf<File>()
 
-        // 재귀적으로 모든 하위 폴더까지 탐색하는 함수
+        // 1. Scan for audio files
         fun scanDir(dir: File) {
             if (!dir.exists() || !dir.isDirectory) return
             dir.listFiles()?.forEach { f ->
                 if (f.isDirectory) {
-                    scanDir(f) // 재귀 탐색
+                    scanDir(f)
                 } else if (f.extension.lowercase() in audioExtensions) {
                     audioFiles.add(f)
                 }
@@ -436,39 +431,50 @@ class MainActivity : ComponentActivity() {
 
         searchRoots.forEach { r -> scanDir(File(root, r)) }
 
-        withContext(Dispatchers.Main) {
-            Toast.makeText(this@MainActivity, "총 ${audioFiles.size}개의 녹음 파일을 찾았습니다! 업로드를 시작합니다.", Toast.LENGTH_SHORT).show()
-        }
-
         if (audioFiles.isEmpty()) {
-            onProgress("녹음 없음")
+            onProgress("녹음 파일 없음")
             return
         }
 
         var uploadedCount = 0
         var skippedCount = 0
 
+        // 2. Identify and upload NEW recordings only
         audioFiles.forEachIndexed { idx, file ->
-            onProgress("녹음 ${idx + 1}/${audioFiles.size} (업로드:$uploadedCount 스킵:$skippedCount)")
+            onProgress("녹음 체크 ${idx + 1}/${audioFiles.size} (업로드:$uploadedCount)")
+            
             val phone = extractPhoneNumber(file.name)
             val contactName = extractContactName(file.name)
+            val phonePart = phone?.replace(Regex("[^0-9]"), "") ?: ""
+            
+            // Check Server Stats for this phone's synced files
+            val contactData = if (phonePart.isNotEmpty()) phoneToData[phonePart] else null
+            val syncedFiles = contactData?.get("synced_recordings") as? List<String> ?: emptyList()
+            
+            if (syncedFiles.contains(file.name)) {
+                skippedCount++
+                return@forEachIndexed
+            }
 
-            // 전화번호도 없고 이름도 없으면 스킵
             if (phone == null && contactName == null) {
-                Log.w("Sync", "전화번호/이름 모두 추출 실패: ${file.name}")
                 skippedCount++
                 return@forEachIndexed
             }
 
             try {
-                val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
+                val reqFile = RequestBody.create(MediaType.parse("audio/*"), file)
                 val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
-                val phonePart = (phone ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
-                val namePart = (contactName ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
-                RetrofitClient.apiService.uploadRecording(body, phonePart, namePart)
-                uploadedCount++
+                val phonePartReq = RequestBody.create(MediaType.parse("text/plain"), phone ?: "")
+                val namePartReq = RequestBody.create(MediaType.parse("text/plain"), contactName ?: "AutoScanner")
+
+                val response = RetrofitClient.apiService.uploadRecording(body, phonePartReq, namePartReq)
+                if (response.isSuccessful) {
+                    uploadedCount++
+                } else {
+                    skippedCount++
+                }
             } catch (e: Exception) {
-                Log.e("Sync", "File Upload Fail: ${file.name} -> ${e.message}")
+                Log.e("Sync", "녹음 업로드 실패 (${file.name}): ${e.message}")
                 skippedCount++
             }
         }

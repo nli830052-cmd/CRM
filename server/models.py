@@ -58,8 +58,10 @@ class AISummary(Base):
 
 class Recording(Base):
     __tablename__ = "recordings"
+    __table_args__ = (UniqueConstraint('contact_id', 'original_filename', name='uix_recording_contact_filename'),)
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     contact_id = Column(String, ForeignKey("contacts.id"))
+    original_filename = Column(String, index=True)
     file_path = Column(String)
     summary = Column(Text, nullable=True)
     transcription = Column(Text, nullable=True)

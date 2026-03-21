@@ -39,9 +39,19 @@ with engine.connect() as conn:
             SELECT MIN(id) FROM messages GROUP BY contact_id, timestamp, content
         );
     """))
-    # 2. Now create the unique constraint/index
+    # 2. Clean up recordings (Handle existing records by populating original_filename if empty)
+    conn.execute(text("UPDATE recordings SET original_filename = substring(file_path from '[^/]+$') WHERE original_filename IS NULL;"))
+    conn.execute(text("""
+        DELETE FROM recordings 
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM recordings GROUP BY contact_id, original_filename
+        );
+    """))
+
+    # 3. Now create the unique constraint/index
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_call_contact_timestamp ON calls (contact_id, timestamp);"))
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_msg_contact_timestamp_content ON messages (contact_id, timestamp, content);"))
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_recording_contact_filename ON recordings (contact_id, original_filename);"))
     conn.commit()
 
 # Mount static files
@@ -304,6 +314,13 @@ def get_contacts_stats(db: Session = Depends(get_db)):
      .outerjoin(msg_stats, models.Contact.id == msg_stats.c.contact_id) \
      .all()
 
+    # 4. Summary of synced recordings per contact (for incremental sync check on client)
+    all_recordings = db.query(models.Recording.contact_id, models.Recording.original_filename).all()
+    rec_filename_map = {}
+    for cid, original_name in all_recordings:
+        if cid not in rec_filename_map: rec_filename_map[cid] = []
+        rec_filename_map[cid].append(original_name)
+
     stats = []
     for contact, c_cnt, c_last, m_cnt, m_last in results:
         # Calculate derived values
@@ -323,7 +340,8 @@ def get_contacts_stats(db: Session = Depends(get_db)):
             "frequency": total_freq,
             "last_contact": last_date.strftime("%Y-%m-%d %H:%M:%S") if last_date else "N/A",
             "last_call_at": c_last.strftime("%Y-%m-%d %H:%M:%S") if c_last else None,
-            "last_message_at": m_last.strftime("%Y-%m-%d %H:%M:%S") if m_last else None
+            "last_message_at": m_last.strftime("%Y-%m-%d %H:%M:%S") if m_last else None,
+            "synced_recordings": rec_filename_map.get(contact.id, []) # NEW: used by client to skip existing files
         })
         
     return stats
@@ -485,25 +503,34 @@ async def upload_recording(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-    # 4. Create DB record (with empty summary for now)
-    recording = models.Recording(
+    # 4. Check for DUPLICATES before saving and starting AI analysis
+    existing = db.query(models.Recording).filter(
+        models.Recording.contact_id == contact.id,
+        models.Recording.original_filename == file.filename
+    ).first()
+    
+    if existing:
+        print(f"--- [INFO] {file.filename} is already synced. Skipping... ---")
+        return {"id": existing.id, "status": "skipped", "message": "Already exists"}
+
+    # 5. Create database entry
+    recording_entry = models.Recording(
         contact_id=contact.id,
+        original_filename=file.filename,
         file_path=file_path,
         timestamp=rec_time,
-        summary="AI 분석 진행 중...",
-        transcription="대기 중"
+        summary="AI 분석 진행 중...", # Initialize summary
+        transcription="대기 중" # Initialize transcription
     )
-    db.add(recording)
+    db.add(recording_entry)
     db.commit()
-    db.refresh(recording)
+    db.refresh(recording_entry)
 
-    # 5. Register AI analysis as a background task
-    # If it's a cloud URL, we directly pass the URL to AI service
-    background_tasks.add_task(process_recording_ai, recording.id, file_path)
+    # 6. AI Processing (Asynchronous)
+    background_tasks.add_task(process_recording_ai, recording_entry.id, file_path)
 
     return {
-        "id": recording.id,
-        "contact_id": recording.contact_id,
+        "id": recording_entry.id,
         "status": "Success",
         "message": "File uploaded. AI analysis started in background."
     }
