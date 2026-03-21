@@ -9,17 +9,19 @@ data class Contact(
 )
 
 data class CallRecord(
-    val contact_id: String,
-    val direction: String = "OUT", // IN or OUT
     val duration: Int,
-    val timestamp: String
+    val timestamp: String,
+    val contact_id: String? = null,
+    val phone_number: String? = null,
+    val direction: String = "OUT" // IN or OUT
 )
 
 data class MessageRecord(
-    val contact_id: String,
     val content: String,
-    val direction: String, // INBOUND or OUTBOUND
-    val timestamp: String
+    val timestamp: String,
+    val contact_id: String? = null,
+    val phone_number: String? = null,
+    val direction: String = "INBOUND" // INBOUND or OUTBOUND
 )
 
 data class TimelineItem(

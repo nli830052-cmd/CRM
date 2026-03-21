@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -192,16 +193,16 @@ class MainActivity : ComponentActivity() {
                                     actions = {
                                         IconButton(
                                             onClick = { 
-                                                attemptSyncAll { loading, progress ->
-                                                    isSyncing = loading
-                                                    if (progress != null) syncProgress = progress
-                                                    if (!loading) { // Reload everything after sync completes
+                                                attemptSyncAll { isLoading, status ->
+                                                    isSyncing = isLoading
+                                                    if (status != null) syncProgress = status
+                                                    if (!isLoading) { // Reload everything after sync completes
                                                         lifecycleScope.launch {
-                                                            scope.launch {
+                                                            launch {
                                                                 val resStats = RetrofitClient.apiService.getContactsStats()
                                                                 if (resStats.isSuccessful) contactStats = (resStats.body() ?: emptyList()).sortedByDescending { it["last_contact"]?.toString() ?: "" }
                                                             }
-                                                            scope.launch {
+                                                            launch {
                                                                 val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
                                                                 if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
                                                             }
@@ -402,9 +403,10 @@ class MainActivity : ComponentActivity() {
                         }
                         return@withContext
                     }
-                    var phoneToData = contactStats.associateBy(
-                        { normalizePhone(it["phone_number"]?.toString() ?: "") },
-                        { it }
+                    val initialStats = statsResponse.body() ?: emptyList()
+                    var phoneToData = initialStats.associateBy(
+                        { stat -> normalizePhone(stat["phone_number"]?.toString() ?: "") },
+                        { stat -> stat }
                     ).toMutableMap()
 
                     // 2. Identify and Sync NEW Contacts only
@@ -424,8 +426,8 @@ class MainActivity : ComponentActivity() {
                         if (refreshStats.isSuccessful) {
                             val updatedStats = refreshStats.body() ?: emptyList()
                             phoneToData = updatedStats.associateBy(
-                                { normalizePhone(it["phone_number"]?.toString() ?: "") },
-                                { it }
+                                { stat -> normalizePhone(stat["phone_number"]?.toString() ?: "") },
+                                { stat -> stat }
                             ).toMutableMap()
                         }
                     }
