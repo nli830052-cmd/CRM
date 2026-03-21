@@ -185,7 +185,7 @@ def log_calls_bulk(calls: List[schemas.CallCreate], db: Session = Depends(get_db
     if not calls: return {"status": "empty"}
     values = [c.dict() for c in calls]
     stmt = pg_insert(models.Call).values(values)
-    stmt = stmt.on_conflict_do_nothing()
+    stmt = stmt.on_conflict_do_nothing(index_elements=['contact_id', 'timestamp'])
     db.execute(stmt)
     db.commit()
     return {"status": "success", "count": len(calls)}
@@ -209,7 +209,7 @@ def log_messages_bulk(messages: List[schemas.MessageCreate], db: Session = Depen
     if not messages: return {"status": "empty"}
     values = [m.dict() for m in messages]
     stmt = pg_insert(models.Message).values(values)
-    stmt = stmt.on_conflict_do_nothing()
+    stmt = stmt.on_conflict_do_nothing(index_elements=['contact_id', 'timestamp', 'content'])
     db.execute(stmt)
     db.commit()
     return {"status": "success", "count": len(messages)}

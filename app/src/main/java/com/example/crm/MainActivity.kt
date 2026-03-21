@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
                         }, modifier = Modifier.fillMaxWidth()) {
                             Text("연락처 분석 테이블 보기")
                         }
+                        }
                     }
                 }
                 "Table" -> {

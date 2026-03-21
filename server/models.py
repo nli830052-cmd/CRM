@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 import uuid
 import datetime
@@ -25,6 +25,7 @@ class Contact(Base):
 
 class Call(Base):
     __tablename__ = "calls"
+    __table_args__ = (UniqueConstraint('contact_id', 'timestamp', name='uix_call_contact_timestamp'),)
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     contact_id = Column(String, ForeignKey("contacts.id"))
     direction = Column(String, default="OUT")  # IN / OUT
@@ -35,6 +36,7 @@ class Call(Base):
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (UniqueConstraint('contact_id', 'timestamp', 'content', name='uix_msg_contact_timestamp_content'),)
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     contact_id = Column(String, ForeignKey("contacts.id"))
     content = Column(Text)
