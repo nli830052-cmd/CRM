@@ -14,6 +14,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 import datetime
 import re
 import asyncio
+import cloudinary
+import cloudinary.uploader
+import tempfile
 
 app = FastAPI(title="SalesMind AI CRM API")
 
@@ -30,10 +33,26 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def read_root():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
-# Recording storage
+# Recording storage (Local fallback)
 RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
+
+# Cloudinary Setup (For Cloud Deployment)
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET,
+        secure=True
+    )
+    print("--- [INFO] Cloudinary initialized successfully ---")
+else:
+    print("--- [WARNING] Cloudinary not configured. Using local storage. ---")
 
 # --- Global Stats ---
 @app.get("/stats/")
@@ -400,10 +419,31 @@ async def upload_recording(
     if not contact:
         raise HTTPException(status_code=400, detail="연락처를 찾거나 생성할 수 없습니다.")
 
-    # 3. Save the file
-    file_path = os.path.join(RECORDINGS_DIR, f"{clean_phone}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # 3. Save the file (Cloud or Local)
+    is_cloud = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
+    file_path = ""
+
+    if is_cloud:
+        try:
+            print(f"--- [INFO] Uploading {file.filename} to Cloudinary... ---")
+            # Upload to Cloudinary with explicit properties
+            upload_result = cloudinary.uploader.upload(
+                file.file,
+                resource_type="auto",
+                folder="sales-crm-recordings",
+                public_id=f"{clean_phone}_{file.filename.split('.')[0]}_{int(datetime.datetime.now().timestamp())}"
+            )
+            file_path = upload_result.get("secure_url") # Use public web URL
+            print(f"--- [INFO] Cloudinary upload success: {file_path} ---")
+        except Exception as e:
+            print(f"--- [ERROR] Cloudinary upload failed, falling back to local: {str(e)} ---")
+            is_cloud = False
+
+    if not is_cloud:
+        # Local Fallback (Temporary storage on Render, permanent on local PC)
+        file_path = os.path.join(RECORDINGS_DIR, f"{clean_phone}_{file.filename}")
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
 
     # 4. Create DB record (with empty summary for now)
     recording = models.Recording(
@@ -418,6 +458,7 @@ async def upload_recording(
     db.refresh(recording)
 
     # 5. Register AI analysis as a background task
+    # If it's a cloud URL, we directly pass the URL to AI service
     background_tasks.add_task(process_recording_ai, recording.id, file_path)
 
     return {
