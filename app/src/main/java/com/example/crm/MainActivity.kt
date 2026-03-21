@@ -40,8 +40,10 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.io.File
 import android.os.Environment
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import android.webkit.WebView
@@ -330,6 +332,11 @@ class MainActivity : ComponentActivity() {
                                     contact_id = contactId,
                                     content = msg.body,
                                     direction = msg.direction,
+                                    timestamp = localMsgAt
+                                ))
+                            }
+                        }
+                    }
                     if (newMsgRecords.isNotEmpty()) {
                         withContext(Dispatchers.Main) { setLoadingState(true, "새 문자 ${newMsgRecords.size}건 동기화 중...") }
                         newMsgRecords.chunked(100).forEach { chunk ->
@@ -433,6 +440,9 @@ class MainActivity : ComponentActivity() {
 
         if (audioFiles.isEmpty()) {
             onProgress("녹음 파일 없음")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@MainActivity, "녹음 동기화 완료! 업로드:0 / 스킵:0", Toast.LENGTH_LONG).show()
+            }
             return
         }
 
@@ -449,6 +459,7 @@ class MainActivity : ComponentActivity() {
             
             // Check Server Stats for this phone's synced files
             val contactData = if (phonePart.isNotEmpty()) phoneToData[phonePart] else null
+            @Suppress("UNCHECKED_CAST")
             val syncedFiles = contactData?.get("synced_recordings") as? List<String> ?: emptyList()
             
             if (syncedFiles.contains(file.name)) {
@@ -462,10 +473,10 @@ class MainActivity : ComponentActivity() {
             }
 
             try {
-                val reqFile = RequestBody.create(MediaType.parse("audio/*"), file)
+                val reqFile = file.asRequestBody("audio/*".toMediaTypeOrNull())
                 val body = MultipartBody.Part.createFormData("file", file.name, reqFile)
-                val phonePartReq = RequestBody.create(MediaType.parse("text/plain"), phone ?: "")
-                val namePartReq = RequestBody.create(MediaType.parse("text/plain"), contactName ?: "AutoScanner")
+                val phonePartReq = (phone ?: "").toRequestBody("text/plain".toMediaTypeOrNull())
+                val namePartReq = (contactName ?: "AutoScanner").toRequestBody("text/plain".toMediaTypeOrNull())
 
                 val response = RetrofitClient.apiService.uploadRecording(body, phonePartReq, namePartReq)
                 if (response.isSuccessful) {
@@ -480,7 +491,7 @@ class MainActivity : ComponentActivity() {
         }
 
         withContext(Dispatchers.Main) {
-            Toast.makeText(this@MainActivity, "녹음 완료! 업로드:${uploadedCount}개 / 스킵:${skippedCount}개", Toast.LENGTH_LONG).show()
+            Toast.makeText(this@MainActivity, "녹음 동기화 완료! 업로드:$uploadedCount / 스킵:$skippedCount", Toast.LENGTH_LONG).show()
         }
     }
 
