@@ -322,34 +322,35 @@ def get_contacts_stats(db: Session = Depends(get_db)):
         func.max(models.Message.timestamp).label("m_last")
     ).group_by(models.Message.contact_id).subquery()
 
-    # 3. Final Query joining Contacts with grouped stats
+    # 3. Summary of recordings per contact
+    rec_stats = db.query(
+        models.Recording.contact_id,
+        func.max(models.Recording.timestamp).label("r_last"),
+        func.array_agg(models.Recording.original_filename).label("r_files")
+    ).group_by(models.Recording.contact_id).subquery()
+
+    # 4. Final Query joining Contacts with all stats
     results = db.query(
         models.Contact,
         call_stats.c.c_count,
         call_stats.c.c_last,
         msg_stats.c.m_count,
-        msg_stats.c.m_last
+        msg_stats.c.m_last,
+        rec_stats.c.r_last,
+        rec_stats.c.r_files
     ).outerjoin(call_stats, models.Contact.id == call_stats.c.contact_id) \
      .outerjoin(msg_stats, models.Contact.id == msg_stats.c.contact_id) \
+     .outerjoin(rec_stats, models.Contact.id == rec_stats.c.contact_id) \
      .all()
 
-    # 4. Summary of synced recordings per contact (for incremental sync check on client)
-    all_recordings = db.query(models.Recording.contact_id, models.Recording.original_filename).all()
-    rec_filename_map = {}
-    for cid, original_name in all_recordings:
-        if cid not in rec_filename_map: rec_filename_map[cid] = []
-        rec_filename_map[cid].append(original_name)
-
     stats = []
-    for contact, c_cnt, c_last, m_cnt, m_last in results:
+    for contact, c_cnt, c_last, m_cnt, m_last, r_last, r_files in results:
         # Calculate derived values
         total_freq = (c_cnt or 0) + (m_cnt or 0)
         
-        # Determine the absolute latest interaction date
-        last_date = None
-        if c_last and m_last: last_date = max(c_last, m_last)
-        elif c_last: last_date = c_last
-        elif m_last: last_date = m_last
+        # Determine the absolute latest interaction date (Calls, Messages, OR Recordings)
+        dates = [d for d in [c_last, m_last, r_last] if d is not None]
+        last_date = max(dates) if dates else None
 
         stats.append({
             "id": contact.id,
@@ -360,9 +361,12 @@ def get_contacts_stats(db: Session = Depends(get_db)):
             "last_contact": last_date.strftime("%Y-%m-%d %H:%M:%S") if last_date else "N/A",
             "last_call_at": c_last.strftime("%Y-%m-%d %H:%M:%S") if c_last else None,
             "last_message_at": m_last.strftime("%Y-%m-%d %H:%M:%S") if m_last else None,
-            "synced_recordings": rec_filename_map.get(contact.id, []) # NEW: used by client to skip existing files
+            "synced_recordings": r_files or [] 
         })
         
+    # Sort by last_contact descending (Newest first)
+    stats.sort(key=lambda x: x["last_contact"] if x["last_contact"] != "N/A" else "", reverse=True)
+    
     return stats
 
 # --- Background AI Task Control ---
