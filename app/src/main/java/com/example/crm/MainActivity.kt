@@ -17,6 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
@@ -333,7 +334,27 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else {
                                     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
-                                        items(filteredTimeline) { item ->
+                                        itemsIndexed(filteredTimeline) { index, item ->
+                                            val currentTS = item["timestamp"]?.toString() ?: ""
+                                            val currentDate = if (currentTS.length >= 10) currentTS.substring(0, 10) else "N/A"
+                                            val prevTS = if (index > 0) filteredTimeline[index - 1]["timestamp"]?.toString() ?: "" else ""
+                                            val prevDate = if (prevTS.length >= 10) prevTS.substring(0, 10) else ""
+
+                                            if (currentDate != prevDate) {
+                                                Surface(
+                                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = currentDate,
+                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+
                                             TimelineItemCard(item) {
                                                 selectedContactId = item["contact_id"]?.toString() ?: ""
                                                 screenState = "Detail"
@@ -431,7 +452,11 @@ class MainActivity : ComponentActivity() {
                     val content = when(type) {
                         "call" -> "${if(dir=="IN") "↙" else "↗"} ${(data["duration"] as? Number)?.toInt() ?: 0}초 통화"
                         "message" -> "${if(dir=="INBOX") "↙" else "↗"} ${data["content"]?.toString()?.take(20)}"
-                        else -> "🎙 AI 분석 리포트"
+                        else -> {
+                            val rawSum = data["summary"]?.toString() ?: "AI 분석 리포트"
+                            val cleanSum = rawSum.replace("*", "").replace("【결론】", "").replace("[요약]", "").trim()
+                            "🎙 $cleanSum"
+                        }
                     }
                     Text(content, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }

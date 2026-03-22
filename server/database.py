@@ -59,7 +59,10 @@ def _get_connection():
 engine = create_engine(
     "postgresql+psycopg2://",
     creator=_get_connection,
-    pool_pre_ping=True,  # 연결 유효성 사전 확인
+    pool_pre_ping=True,   # Check connection validity
+    pool_size=20,         # Minimum number of kept connections
+    max_overflow=50,      # Additional connections allowed beyond pool_size
+    pool_timeout=60       # Increase wait time for a free connection
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

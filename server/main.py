@@ -358,32 +358,57 @@ def get_timeline(contact_id: str, db: Session = Depends(get_db)):
     return timeline
 
 @app.get("/ai-summary/{contact_id}")
-async def get_ai_summary(contact_id: str, db: Session = Depends(get_db)):
-    # 1. Fetch entire historical data for the contact including recordings
+async def get_ai_summary(contact_id: str, refresh: bool = False, db: Session = Depends(get_db)):
+    # 1. Check for existing cached summary
+    cached = db.query(models.AISummary).filter(models.AISummary.contact_id == contact_id).first()
+    
+    # 2. Get latest interaction timestamp
+    last_call = db.query(func.max(models.Call.timestamp)).filter(models.Call.contact_id == contact_id).scalar()
+    last_msg = db.query(func.max(models.Message.timestamp)).filter(models.Message.contact_id == contact_id).scalar()
+    last_rec = db.query(func.max(models.Recording.timestamp)).filter(models.Recording.contact_id == contact_id).scalar()
+    
+    dates = [d for d in [last_call, last_msg, last_rec] if d is not None]
+    latest_interaction = max(dates) if dates else datetime.datetime.min
+    
+    # Cache Check
+    if cached and cached.updated_at >= latest_interaction:
+        return {"summary": cached.summary, "status": cached.status, "next_action": cached.next_action}
+    
+    # 3. Fetch data if cache is missing or stale
     calls = db.query(models.Call).filter(models.Call.contact_id == contact_id).all()
     messages = db.query(models.Message).filter(models.Message.contact_id == contact_id).all()
     recordings = db.query(models.Recording).filter(models.Recording.contact_id == contact_id).all()
     
     # 2. Build history text for analysis
     history_entries = []
-    for c in calls:
-        history_entries.append(f"[CallLog] {c.timestamp} ({'수신' if c.direction=='IN' else '발신'})")
-    for m in messages:
-        history_entries.append(f"[{'SMS-수신' if m.direction=='INBOX' else 'SMS-발신'}] {m.timestamp}: {m.content}")
+    for c in calls: history_entries.append(f"[CallLog] {c.timestamp} ({'수신' if c.direction=='IN' else '발신'})")
+    for m in messages: history_entries.append(f"[{'SMS-수신' if m.direction=='INBOX' else 'SMS-발신'}] {m.timestamp}: {m.content}")
     for r in recordings:
         if r.summary and "분석 진행 중" not in r.summary:
             history_entries.append(f"[CallAnalysis] {r.timestamp}: {r.summary}")
     
-    # Sort history entries by timestamp (simple sort)
     history_entries.sort()
     
     if not history_entries:
-        return {"summary": "아직 대화 기록이 충분하지 않아 분석이 불가능합니다. 동기화를 먼저 진행해 주세요.", "next_action": "기록 대기 중", "status": "empty"}
+        return {"summary": "아직 대화 기록이 충분하지 않습니다.", "next_action": "기록 대기 중", "status": "empty"}
 
     history_text = "\n".join(history_entries)
     
-    # 3. Request Gemini to analyze the interaction context
-    summary_result = await ai_service.analyze_history(history_text)
+    # 3. Request Gemini to analyze the interaction context (Regulated by sync semaphore)
+    async with ai_semaphore:
+        summary_result = await ai_service.analyze_history(history_text)
+    
+    # 4. Save Cache
+    if not cached:
+        cached = models.AISummary(contact_id=contact_id)
+        db.add(cached)
+    
+    cached.summary = summary_result.get("summary", "")
+    cached.status = summary_result.get("status", "WARM")
+    cached.next_action = summary_result.get("next_action", "")
+    cached.updated_at = datetime.datetime.utcnow()
+    db.commit()
+    
     return summary_result
 
 @app.get("/contacts/stats/", response_model=List[dict])
@@ -453,9 +478,8 @@ def get_contacts_stats(db: Session = Depends(get_db)):
     
     return stats
 
-# --- Background AI Task Control ---
-# Limit concurrent AI analysis to avoid rate limits (e.g., 2 at a time)
-ai_semaphore = asyncio.Semaphore(2)
+# Limit concurrent AI analysis to avoid rate limits (Stricter: 1 at a time for Free tier)
+ai_semaphore = asyncio.Semaphore(1)
 
 # --- Background AI Task ---
 
@@ -467,8 +491,8 @@ async def process_recording_ai(recording_id: str, file_path: str):
     async with ai_semaphore:
         print(f"--- [BG] 시작: AI 분석 진행 중 (ID: {recording_id}) ---")
         try:
-            # Small throttle to be extra safe with Free tier
-            await asyncio.sleep(1)
+            # Throttle to be safe with Free tier (3 seconds delay between tasks)
+            await asyncio.sleep(3)
             summary, transcription = await ai_service.analyze_call_audio(file_path)
             
             # 새 세션 생성하여 업데이트

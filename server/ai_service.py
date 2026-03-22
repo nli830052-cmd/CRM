@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import json
 import requests
 import tempfile
-import urllib.parse
+from langsmith import traceable
 
 load_dotenv()
 
@@ -15,6 +15,8 @@ genai.configure(api_key=GEMINI_API_KEY)
 # Use the latest Gemini 2.0 Flash
 model = genai.GenerativeModel('models/gemini-2.0-flash')
 
+# Monitor AI sessions with LangSmith
+@traceable
 async def analyze_history(history_text: str):
     if not history_text:
         return {
@@ -46,6 +48,7 @@ async def analyze_history(history_text: str):
     except:
         return {"summary": "AI 분석 오류", "status": "ERROR", "next_action": "로그 확인"}
 
+@traceable
 async def analyze_call_audio(file_path: str):
     """
     오디오 분석: 로컬 파일 및 URL(Cloudinary) 지원
