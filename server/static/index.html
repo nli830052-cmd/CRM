@@ -95,14 +95,17 @@
 
         /* Modal Enhancements */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 0.5rem; }
-        .modal-box { background: #161b22; border: 1px solid var(--border); width: 100%; max-width: 800px; border-radius: 24px; padding: 2rem 1.5rem; overflow-y: auto; height: 90vh; position: relative; }
-        .modal-close { position: absolute; top: 1.5rem; right: 1.5rem; font-size: 1.8rem; cursor: pointer; color: var(--text-muted); z-index: 10; }
+        .modal-box { background: #111827; border: none; width: 100%; max-width: none; border-radius: 0; padding: 1.5rem 1.2rem; overflow-y: auto; height: 100vh; position: absolute; top: 0; left: 0; box-shadow: none; z-index: 1001; }
+        .modal-close { position: fixed; top: 1rem; right: 1rem; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); z-index: 2000; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border-radius: 50%; }
         
         /* Dialogue Styles */
-        .dialogue-line { margin-bottom: 12px; line-height: 1.6; font-size: 1rem; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 8px; }
-        .speaker-other { color: var(--warning); font-weight: 800; margin-right: 8px; }
-        .speaker-me { color: var(--accent); font-weight: 800; margin-right: 8px; }
-        .dialogue-txt { color: #e2e8f0; }
+        .dialogue-line { margin-bottom: 20px; line-height: 1.5; font-size: 1rem; position: relative; clear: both; overflow: hidden; }
+        .speaker-bubble { padding: 12px 16px; border-radius: 18px; display: inline-block; max-width: 85%; line-height: 1.6; }
+        .speaker-other { background: #1f2937; color: #f8fafc; border: 1px solid rgba(255,255,255,0.05); float: left; border-bottom-left-radius: 4px; }
+        .speaker-me { background: #1e3a8a; color: #e0f2fe; float: right; border-bottom-right-radius: 4px; border: 1px solid rgba(0, 210, 255, 0.1); }
+        .speaker-name { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; margin-bottom: 6px; display: block; opacity: 0.7; }
+        .speaker-other .speaker-name { color: var(--warning); }
+        .speaker-me .speaker-name { color: var(--accent); }
     </style>
 </head>
 <body>
@@ -282,28 +285,50 @@
             const lines = text.split('\n');
             let html = "";
             lines.forEach(line => {
-                if (line.trim()) {
-                    let speaker = "";
-                    let content = line;
-                    if (line.includes('상대방:')) {
-                        speaker = '<span class="speaker-other">상대방:</span>';
-                        content = line.split('상대방:')[1];
-                    } else if (line.includes('나:')) {
-                        speaker = '<span class="speaker-me">나:</span>';
-                        content = line.split('나:')[1];
-                    }
-                    html += `<div class="dialogue-line">${speaker}<span class="dialogue-txt">${content}</span></div>`;
-                }
+                const trimmed = line.trim();
+                if (!trimmed) return;
+
+                let isOther = trimmed.includes('상대방:');
+                let isMe = trimmed.includes('나:');
+
+                // Skip non-dialogue lines (system message, prompt remarks, etc)
+                if (!isOther && !isMe) return;
+
+                let speakerName = isOther ? "상대방" : "나";
+                let content = trimmed.split(isOther ? '상대방:' : '나:')[1].trim();
+                
+                // Final check to see if content is just empty after split
+                if (!content) return;
+
+                html += `
+                    <div class="dialogue-line">
+                        <div class="speaker-bubble ${isOther ? 'speaker-other' : 'speaker-me'}">
+                            <span class="speaker-name">${speakerName}</span>
+                            <span>${content}</span>
+                        </div>
+                    </div>`;
             });
-            return html;
+            return html || "분석할 수 없는 대화 형식입니다.";
         }
 
         function openModal(r) {
             document.getElementById('modal-overlay').style.display = "flex";
             document.getElementById('modal-content').innerHTML = formatDialogue(r.transcription);
+            
+            // Push history state so Back button closes modal first
+            history.pushState({ modal: true }, "");
         }
 
-        function closeModal() { document.getElementById('modal-overlay').style.display = "none"; }
+        function closeModal(isPopState = false) { 
+            document.getElementById('modal-overlay').style.display = "none"; 
+            if (!isPopState && history.state?.modal) {
+                history.back();
+            }
+        }
+
+        window.onpopstate = function(event) {
+            closeModal(true);
+        };
         init();
     </script>
 </body>

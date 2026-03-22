@@ -49,6 +49,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -183,24 +184,29 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             try {
                 isLoadingInitialData = true
-                // 1. Fetch existing data always on start
-                val t1 = launch {
+                
+                // 1. Fetch Timeline (Highest priority for UI)
+                launch {
                     val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
-                    if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                    if (resTimeline.isSuccessful) {
+                        globalTimeline = resTimeline.body() ?: emptyList()
+                    }
+                    // Immediately hide loader once timeline is here (even if stats/sync are pending)
+                    isLoadingInitialData = false 
+                    
+                    // 2. Automatically trigger sync for new data AFTER loading cloud ones
+                    attemptSyncAll { b, s -> 
+                        isSyncing = b
+                        if (s != null) syncProgress = s
+                    }
                 }
-                val t2 = launch {
+                
+                // 3. Fetch Stats in background (for the drawer)
+                launch {
                     val resStats = RetrofitClient.apiService.getContactsStats()
                     if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
                 }
-                t1.join()
-                t2.join()
-                isLoadingInitialData = false
 
-                // 2. Automatically trigger sync for new data
-                attemptSyncAll { b, s -> 
-                    isSyncing = b
-                    if (s != null) syncProgress = s
-                }
             } catch (e: Exception) {
                 Log.e("LoadError", "Initial fetch failed: ${e.message}")
                 isLoadingInitialData = false
@@ -348,18 +354,50 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun AnalysisWebView(contactId: String, onBack: () -> Unit) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(8.dp)) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null) }
-                Text("AI 분석 리포트", style = MaterialTheme.typography.titleLarge)
+        var webView: WebView? by remember { mutableStateOf(null) }
+
+        // Intercept hardware back button
+        BackHandler {
+            if (webView?.canGoBack() == true) {
+                webView?.goBack()
+            } else {
+                onBack()
             }
-            AndroidView(factory = { ctx ->
-                WebView(ctx).apply {
-                    webViewClient = WebViewClient()
-                    settings.javaScriptEnabled = true
-                    loadUrl("https://crm-f2v6.onrender.com/?id=$contactId")
+        }
+
+        Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0E11))) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(8.dp)
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
                 }
-            }, modifier = Modifier.fillMaxSize())
+                Text(
+                    "AI 분석 리포트",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
+                )
+            }
+            AndroidView(
+                factory = { ctx ->
+                    WebView(ctx).apply {
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.loadWithOverviewMode = true
+                        settings.useWideViewPort = true
+                        loadUrl("http://192.168.200.178:8000/?id=$contactId")
+                        webView = this
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { webView = it }
+            )
         }
     }
 

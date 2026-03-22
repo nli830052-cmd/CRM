@@ -148,7 +148,10 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         }
 
         unsyncedFiles.forEachIndexed { index, file ->
-            val progress = "신규 녹음 파일 업로드 중: ${index + 1} / ${totalToUpload}개"
+            val progress = when {
+                totalToUpload > 10 -> "최신 녹음 데이터 동기화 중... (${index + 1} / $totalToUpload)"
+                else -> "${file.name.substringAfterLast("/").take(15)}... 업로드 중"
+            }
             setProgress(workDataOf("status" to progress))
             
             val phone = extractPhoneNumber(file.name) ?: return@forEachIndexed
@@ -165,7 +168,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 Log.e("SyncWorker", "File upload failed: ${file.name}")
             }
         }
-        setProgress(workDataOf("status" to "${totalToUpload}개의 최신 파일 동기화 완료!"))
+        setProgress(workDataOf("status" to "동기화가 완료되었습니다!"))
     }
 
     private fun normalizePhone(number: String): String {
