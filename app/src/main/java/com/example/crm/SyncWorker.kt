@@ -139,7 +139,7 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
             val phone = extractPhoneNumber(file.name) ?: return@filter false
             val cleanPhone = normalizePhone(phone)
             phoneToSyncedSet[cleanPhone]?.contains(file.name) != true
-        }
+        }.sortedByDescending { it.lastModified() }
 
         val totalToUpload = unsyncedFiles.size
         if (totalToUpload == 0) {

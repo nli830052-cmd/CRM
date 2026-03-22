@@ -96,6 +96,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private var pendingSyncAction: (() -> Unit)? = null
+    private var mediaPlayer: android.media.MediaPlayer? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -484,8 +491,9 @@ class MainActivity : ComponentActivity() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: ""
                                 if (url.startsWith("crm://play_audio")) {
-                                    val filename = Uri.parse(url).getQueryParameter("filename")
-                                    if (filename != null) {
+                                    val rawName = Uri.parse(url).getQueryParameter("filename") ?: ""
+                                    val filename = java.net.URLDecoder.decode(rawName, "UTF-8")
+                                    if (filename.isNotEmpty()) {
                                         playAudioFile(ctx, filename)
                                     }
                                     return true
@@ -497,7 +505,8 @@ class MainActivity : ComponentActivity() {
                         settings.domStorageEnabled = true
                         settings.loadWithOverviewMode = true
                         settings.useWideViewPort = true
-                        loadUrl("https://crm-f2v6.onrender.com/?id=$contactId")
+                        settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE // Prevent dot caching
+                        loadUrl("https://crm-f2v6.onrender.com/?id=$contactId&cacheBust=${System.currentTimeMillis()}")
                         webView = this
                     }
                 },
@@ -624,30 +633,41 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun playAudioFile(context: Context, filename: String) {
+        if (mediaPlayer?.isPlaying == true) {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            Toast.makeText(context, "통화 녹음 재생을 중지합니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val recordingsDir = File(Environment.getExternalStorageDirectory(), "Recordings/Call")
+        var fileToPlay = File(recordingsDir, filename)
+        
+        if (!fileToPlay.exists()) {
+            // Broad search for variations safely
+            val searchFiles = recordingsDir.listFiles()?.filter { it.name.contains(filename.substringBefore(".")) }
+            if (!searchFiles.isNullOrEmpty()) {
+                fileToPlay = searchFiles.first()
+            } else {
+                Toast.makeText(context, "핸드폰에서 해당 녹음 파일을 찾을 수 없습니다: ${fileToPlay.name}", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
         try {
-            val projection = arrayOf(MediaStore.Audio.Media._ID)
-            val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
-            val selectionArgs = arrayOf(filename)
-            
-            context.contentResolver.query(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                projection, selection, selectionArgs, null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
-                    val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
-                    
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(contentUri, "audio/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(intent)
-                    return
+            mediaPlayer = android.media.MediaPlayer().apply {
+                setDataSource(fileToPlay.absolutePath)
+                prepare()
+                start()
+                setOnCompletionListener {
+                    it.release()
+                    mediaPlayer = null
                 }
             }
-            Toast.makeText(context, "핸드폰에서 해당 녹음 파일을 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
-        } catch(e: Exception) {
-            Toast.makeText(context, "재생 앱을 열 수 없습니다.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "통화 녹음 재생 라인 연결! 🎵 (한 번 더 누르면 중지)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "파일 재생 중 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
         }
     }
 }
