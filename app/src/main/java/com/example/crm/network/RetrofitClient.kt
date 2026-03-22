@@ -10,7 +10,7 @@ object RetrofitClient {
 
     // 녹음 파일 1533개 업로드를 위해 타임아웃을 충분히 길게 설정
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)       // 연결 대기: 30초
+        .connectTimeout(90, TimeUnit.SECONDS)       // 연결 대기: 90초 (Render 무료티어 로딩 대기 위함)
         .readTimeout(300, TimeUnit.SECONDS)         // 응답 대기: 5분
         .writeTimeout(300, TimeUnit.SECONDS)        // 업로드 대기: 5분
         .build()

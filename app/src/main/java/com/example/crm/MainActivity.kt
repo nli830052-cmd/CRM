@@ -188,24 +188,33 @@ class MainActivity : ComponentActivity() {
                 
                 // 1. Fetch Timeline (Highest priority for UI)
                 launch {
-                    val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
-                    if (resTimeline.isSuccessful) {
-                        globalTimeline = resTimeline.body() ?: emptyList()
-                    }
-                    // Immediately hide loader once timeline is here (even if stats/sync are pending)
-                    isLoadingInitialData = false 
-                    
-                    // 2. Automatically trigger sync for new data AFTER loading cloud ones
-                    attemptSyncAll { b, s -> 
-                        isSyncing = b
-                        if (s != null) syncProgress = s
+                    try {
+                        val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
+                        if (resTimeline.isSuccessful) {
+                            globalTimeline = resTimeline.body() ?: emptyList()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Network", "Timeline fetch failed: ${e.message}")
+                    } finally {
+                        // Immediately hide loader once timeline is here (even if stats/sync are pending)
+                        isLoadingInitialData = false 
+                        
+                        // 2. Automatically trigger sync for new data AFTER loading cloud ones
+                        attemptSyncAll { b, s -> 
+                            isSyncing = b
+                            if (s != null) syncProgress = s
+                        }
                     }
                 }
                 
                 // 3. Fetch Stats in background (for the drawer)
                 launch {
-                    val resStats = RetrofitClient.apiService.getContactsStats()
-                    if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
+                    try {
+                        val resStats = RetrofitClient.apiService.getContactsStats()
+                        if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
+                    } catch (e: Exception) {
+                        Log.e("Network", "Stats fetch failed: ${e.message}")
+                    }
                 }
 
             } catch (e: Exception) {
