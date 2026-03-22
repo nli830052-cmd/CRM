@@ -24,40 +24,15 @@ app = FastAPI(title="SalesMind AI CRM API")
 models.Base.metadata.create_all(bind=engine)
 
 # Ensure unique indexes for duplicate prevention (Postgres specific)
-with engine.connect() as conn:
-    # 0. ENSURE 'original_filename' and 'file_hash' columns exist (Manual Migration)
-    conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
-    conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS file_hash VARCHAR;"))
-    conn.commit()
-
-    # 1. Clean up existing DUPLICATES first - absolutely required to create a UNIQUE index
-    # We keep only one record per duplicated group.
-    conn.execute(text("""
-        DELETE FROM calls 
-        WHERE id NOT IN (
-            SELECT MIN(id) FROM calls GROUP BY contact_id, timestamp
-        );
-    """))
-    conn.execute(text("""
-        DELETE FROM messages 
-        WHERE id NOT IN (
-            SELECT MIN(id) FROM messages GROUP BY contact_id, timestamp, content
-        );
-    """))
-    # 2. Clean up recordings (Handle existing records by populating original_filename if empty)
-    conn.execute(text("UPDATE recordings SET original_filename = substring(file_path from '[^/]+$') WHERE original_filename IS NULL;"))
-    conn.execute(text("""
-        DELETE FROM recordings 
-        WHERE id NOT IN (
-            SELECT MIN(id) FROM recordings GROUP BY contact_id, original_filename
-        );
-    """))
-
-    # 3. Now create the unique constraint/index
-    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_call_contact_timestamp ON calls (contact_id, timestamp);"))
-    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_msg_contact_timestamp_content ON messages (contact_id, timestamp, content);"))
-    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uix_recording_contact_filename ON recordings (contact_id, original_filename);"))
-    conn.commit()
+# 참고: 이 작업은 최초 1회만 실행되면 되며 계속 두면 부팅 시간을 잡아먹어 Render가 강제 종료하게 됩니다.
+# 이미 인덱스가 생성되었으므로 부팅 속도를 위해 비활성화합니다.
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
+        conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS file_hash VARCHAR;"))
+        conn.commit()
+except Exception as e:
+    print(f"Skipping DB updates: {e}")
 
 # Mount static files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
