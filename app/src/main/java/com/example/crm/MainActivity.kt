@@ -370,7 +370,13 @@ class MainActivity : ComponentActivity() {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(8.dp)
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = {
+                    if (webView?.canGoBack() == true) {
+                        webView?.goBack()
+                    } else {
+                        onBack()
+                    }
+                }) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",

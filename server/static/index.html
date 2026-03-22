@@ -48,12 +48,9 @@
         /* Highlight sections */
         .summary-tag { color: var(--accent); font-weight: 800; margin-top: 10px; display: block; }
 
-        .ai-action-bar { 
-            background: rgba(0, 210, 255, 0.08); border-radius: 16px; padding: 16px; 
-            border: 1px solid rgba(0, 210, 255, 0.15); display: flex; flex-direction: column; gap: 6px;
-        }
-        .ai-action-ttl { font-size: 0.72rem; color: var(--accent); font-weight: 800; display: flex; align-items: center; gap: 6px; }
-        .ai-action-txt { color: #f8fafc; font-weight: 700; font-size: 1rem; line-height: 1.6; white-space: pre-wrap; }
+        .ai-action-bar { display: none !important; }
+        .ai-action-ttl { font-size: 0.65rem; color: var(--accent); font-weight: 800; display: flex; align-items: center; gap: 6px; }
+        .ai-action-txt { color: #f8fafc; font-weight: 700; font-size: 0.85rem; line-height: 1.6; white-space: pre-wrap; }
 
         /* Interaction Timeline */
         .h-sec { font-size: 0.8rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 1.5rem; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -94,9 +91,9 @@
         .hidden { display: none !important; }
 
         /* Modal Enhancements */
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 0.5rem; }
-        .modal-box { background: #111827; border: none; width: 100%; max-width: none; border-radius: 0; padding: 1.5rem 1.2rem; overflow-y: auto; height: 100vh; position: absolute; top: 0; left: 0; box-shadow: none; z-index: 1001; }
-        .modal-close { position: fixed; top: 1rem; right: 1rem; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); z-index: 2000; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border-radius: 50%; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #0b0e11; display: none; z-index: 2000; padding: 0; margin: 0; }
+        .modal-box { background: #0b0e11; width: 100%; height: 100%; padding: 80px 1rem 2rem 1rem; overflow-y: auto; position: fixed; top: 0; left: 0; border: none; }
+        .modal-close { position: fixed; top: 1.5rem; right: 1.5rem; font-size: 1.5rem; cursor: pointer; color: white; z-index: 3000; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.15); border-radius: 50%; opacity: 0.9; }
         
         /* Dialogue Styles */
         .dialogue-line { margin-bottom: 20px; line-height: 1.5; font-size: 1rem; position: relative; clear: both; overflow: hidden; }
@@ -158,9 +155,15 @@
         }
 
         function formatSummary(text) {
-            // Replace [Markers] with highlighted tags
-            let formatted = text.replace(/\[(초기 접점|진행 현황|최근 이슈)\]/g, '<span class="summary-tag">[$1]</span>');
-            return formatted;
+            if (!text) return "";
+            return text
+                .replace(/\*/g, '') // Remove all asterisks (*)
+                .replace(/【?고객문의】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【고객문의】</b><br>')
+                .replace(/【?나의 응대】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【나의 응대】</b><br>')
+                .replace(/【?전반적인 사항】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【전반적인 사항】</b><br>')
+                .replace(/【?고객 불만 사항】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【고객 불만 사항】</b><br>')
+                .replace(/【?주요 업무 현황】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【주요 업무 현황】</b><br>')
+                .replace(/•/g, '<span style="color:var(--accent); margin-right:5px;">•</span>');
         }
 
         async function selectContact(c) {
