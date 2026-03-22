@@ -69,26 +69,35 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 def read_root():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
-# Recording storage (Local fallback)
-RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+# Recording storage (Move outside 'server/' to prevent Uvicorn reloader loops)
+# C:\CRM\server\main.py -> C:\CRM\recordings
+RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "recordings")
 if not os.path.exists(RECORDINGS_DIR):
     os.makedirs(RECORDINGS_DIR)
 
 # Cloudinary Setup (For Cloud Deployment)
-CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
-CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
-CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
-
-if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
-    cloudinary.config(
-        cloud_name=CLOUDINARY_CLOUD_NAME,
-        api_key=CLOUDINARY_API_KEY,
-        api_secret=CLOUDINARY_API_SECRET,
-        secure=True
-    )
-    print("--- [INFO] Cloudinary initialized successfully ---")
+CLOUDINARY_URL = os.getenv("CLOUDINARY_URL")
+if CLOUDINARY_URL:
+    # Use standard URL config if available
+    import cloudinary
+    cloudinary.config(cloudinary_url=CLOUDINARY_URL)
+    print("--- [INFO] Cloudinary initialized via URL ---")
 else:
-    print("--- [WARNING] Cloudinary not configured. Using local storage. ---")
+    # Fallback to individual keys
+    CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+    CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+    CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+    if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+        cloudinary.config(
+            cloud_name=CLOUDINARY_CLOUD_NAME,
+            api_key=CLOUDINARY_API_KEY,
+            api_secret=CLOUDINARY_API_SECRET,
+            secure=True
+        )
+        print("--- [INFO] Cloudinary initialized via keys ---")
+    else:
+        print("--- [WARNING] Cloudinary not configured. Using local storage at:", RECORDINGS_DIR)
 
 # --- Global Stats ---
 @app.get("/stats/")
@@ -370,8 +379,8 @@ async def get_ai_summary(contact_id: str, refresh: bool = False, db: Session = D
     dates = [d for d in [last_call, last_msg, last_rec] if d is not None]
     latest_interaction = max(dates) if dates else datetime.datetime.min
     
-    # Cache Check
-    if cached and cached.updated_at >= latest_interaction:
+    # Cache Check (Skip if refresh=True for LangSmith testing)
+    if not refresh and cached and cached.updated_at >= latest_interaction:
         return {"summary": cached.summary, "status": cached.status, "next_action": cached.next_action}
     
     # 3. Fetch data if cache is missing or stale
@@ -403,12 +412,24 @@ async def get_ai_summary(contact_id: str, refresh: bool = False, db: Session = D
         cached = models.AISummary(contact_id=contact_id)
         db.add(cached)
     
-    cached.summary = summary_result.get("summary", "")
-    cached.status = summary_result.get("status", "WARM")
-    cached.next_action = summary_result.get("next_action", "")
+    # Ensure values are strings before saving to DB columns (Prevents dict conversion errors)
+    sum_val = summary_result.get("summary", "")
+    if isinstance(sum_val, dict):
+        sum_val = "\n".join([f"{k} {v}" for k, v in sum_val.items()])
+    
+    action_val = summary_result.get("next_action", "")
+    if isinstance(action_val, dict):
+        action_val = "\n".join([f"{k} {v}" for k, v in action_val.items()])
+
+    cached.summary = str(sum_val)
+    cached.status = str(summary_result.get("status", "WARM"))
+    cached.next_action = str(action_val)
     cached.updated_at = datetime.datetime.utcnow()
     db.commit()
     
+    # Return normalized result to UI
+    summary_result["summary"] = sum_val
+    summary_result["next_action"] = action_val
     return summary_result
 
 @app.get("/contacts/stats/", response_model=List[dict])

@@ -115,7 +115,12 @@
                 </div>
 
                 <div class="ai-card">
-                    <div class="ai-card-ttl"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 인텔리전스 분석 리포트</div>
+                    <div class="ai-card-ttl">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> AI 인텔리전스 분석 리포트
+                        <span onclick="refreshSummary()" style="float:right; cursor:pointer; font-size:0.9rem; opacity:0.7;" title="분석 새로고침">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                        </span>
+                    </div>
                     <div id="ai-summary" class="ai-summary">분석 데이터를 불러오고 있습니다...</div>
                     <div class="ai-action-bar">
                         <span class="ai-action-ttl"><i class="fa-solid fa-star"></i> 추천 다음 할 일</span>
@@ -167,8 +172,7 @@
             if (!text) return "";
             let cleaned = cleanAIContent(text);
             return cleaned
-                .replace(/【?고객문의】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【고객문의】</b><br>')
-                .replace(/【?나의 응대】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【나의 응대】</b><br>')
+                .replace(/【?날짜별 요약】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【날짜별 요약】</b><br>')
                 .replace(/【?전반적인 사항】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【전반적인 사항】</b><br>')
                 .replace(/【?고객 불만 사항】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【고객 불만 사항】</b><br>')
                 .replace(/【?주요 업무 현황】?:?/g, '<br><b style="color:var(--accent); font-size:1.1rem;">【주요 업무 현황】</b><br>');
@@ -183,12 +187,19 @@
             loadAI(c.id);
         }
 
-        async function loadAI(id) {
+        async function refreshSummary() {
+            const id = new URLSearchParams(window.location.search).get('id');
+            if (!id) return;
+            document.getElementById('ai-summary').innerHTML = '<div style="text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> AI가 최신 기록으로 다시 분석 중입니다...</div>';
+            loadAI(id, true);
+        }
+
+        async function loadAI(id, refresh = false) {
             try {
-                const res = await fetch(`${API}/ai-summary/${id}`);
+                const res = await fetch(`${API}/ai-summary/${id}${refresh ? '?refresh=true' : ''}`);
                 const data = await res.json();
                 document.getElementById('ai-summary').innerHTML = formatSummary(data.summary);
-                document.getElementById('ai-action').innerText = data.next_action;
+                document.getElementById('ai-action').innerText = data.next_action || "-";
             } catch(e) {
                 document.getElementById('ai-summary').innerText = "데이터가 부족하여 분석할 수 없습니다.";
             }
