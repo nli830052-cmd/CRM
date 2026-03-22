@@ -55,14 +55,14 @@ def _get_connection():
     )
 
 
-# SQLAlchemy 엔진 생성 (creator 방식으로 URL 파싱 우회)
+# SQLAlchemy 엔진 생성 (커넥션 풀 최적화: Supabase 무료 티어 제한 대응)
 engine = create_engine(
     "postgresql+psycopg2://",
     creator=_get_connection,
-    pool_pre_ping=True,   # Check connection validity
-    pool_size=20,         # Minimum number of kept connections
-    max_overflow=50,      # Additional connections allowed beyond pool_size
-    pool_timeout=60       # Increase wait time for a free connection
+    pool_pre_ping=True,   # 연결 유효성 매번 확인
+    pool_size=5,          # 상시 유지되는 연결 수 (기존 20에서 축소)
+    max_overflow=10,      # 필요할 때 추가로 열 수 있는 최대 연결 (기존 50에서 축소)
+    pool_timeout=30       # 연결 확보 대기 시간 (기존 60에서 축소)
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

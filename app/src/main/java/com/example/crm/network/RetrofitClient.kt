@@ -6,7 +6,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    private const val BASE_URL = "http://192.168.200.178:8000/"
+    private const val BASE_URL = "https://crm-f2v6.onrender.com/"
 
     // 녹음 파일 1533개 업로드를 위해 타임아웃을 충분히 길게 설정
     private val okHttpClient = OkHttpClient.Builder()
