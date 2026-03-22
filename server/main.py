@@ -289,7 +289,7 @@ def log_messages_bulk(messages: List[schemas.MessageCreate], db: Session = Depen
 # --- Timeline Endpoint ---
 
 @app.get("/timeline/all/")
-def get_global_timeline(limit: int = 200, db: Session = Depends(get_db)):
+def get_global_timeline(limit: int = 5000, db: Session = Depends(get_db)):
     """Unified timeline of all interactions: Calls, Messages, and AI-Analyzed Recordings."""
     # 1. Fetch latest raw records
     calls = db.query(models.Call, models.Contact.name, models.Contact.phone_number) \
