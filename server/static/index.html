@@ -103,6 +103,21 @@
         .speaker-name { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; margin-bottom: 6px; display: block; opacity: 0.7; }
         .speaker-other .speaker-name { color: var(--warning); }
         .speaker-me .speaker-name { color: var(--accent); }
+        
+        .date-badge {
+            display: inline-flex;
+            align-items: center;
+            background: linear-gradient(135deg, rgba(0, 210, 255, 0.15) 0%, rgba(58, 123, 213, 0.15) 100%);
+            color: #00d2ff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(0, 210, 255, 0.2);
+            font-size: 0.95rem;
+            font-weight: 700;
+            margin: 12px 0 6px -5px; /* Pull back slightly to align with bullet points */
+            box-shadow: 0 2px 8px rgba(0,210,255,0.05);
+        }
+        .date-badge i { margin-right: 6px; opacity: 0.8; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -164,6 +179,7 @@
             return text
                 .replace(/\*/g, '') // Remove all asterisks (*)
                 .replace(/【?결론】?:?[^【\n]*/gi, '') // Remove ANY "결론" section
+                .replace(/\n?\[?(\d{4}[-./]\d{2}[-./]\d{2}|\d{2,4}년\s*\d{1,2}월\s*\d{1,2}일)\]?:?/g, '<br><span class="date-badge"><i class="fa-regular fa-calendar-days"></i> $1</span><br>') // Date highlight
                 .replace(/•/g, '<span style="color:var(--accent); margin-right:5px;">•</span>')
                 .replace(/^(\s*[-*0-9.]+\s+)/gm, '<span style="color:var(--accent); margin-right:5px;">•</span>');
         }
@@ -233,7 +249,8 @@
                         type: 'ai_call',
                         summary: r.summary,
                         transcription: r.transcription,
-                        id: r.id
+                        id: r.id,
+                        file_name: r.original_filename
                     });
                 });
 
@@ -311,37 +328,61 @@
             if (!text) return "전사 데이터가 없습니다.";
             const lines = text.split('\n');
             let html = "";
+            let currentSpeaker = "상대방"; 
+            
             lines.forEach(line => {
-                const trimmed = line.trim();
+                let trimmed = line.trim();
                 if (!trimmed) return;
+                trimmed = trimmed.replace(/\*/g, '');
 
-                let isOther = trimmed.includes('상대방:');
-                let isMe = trimmed.includes('나:');
-
-                // Skip non-dialogue lines (system message, prompt remarks, etc)
-                if (!isOther && !isMe) return;
-
-                let speakerName = isOther ? "상대방" : "나";
-                let content = trimmed.split(isOther ? '상대방:' : '나:')[1].trim();
+                let isOther = trimmed.startsWith('상대방') && trimmed.includes(':');
+                let isMe = trimmed.startsWith('나') && trimmed.includes(':');
+                let lineContent = trimmed;
                 
-                // Final check to see if content is just empty after split
-                if (!content) return;
+                if (isOther) {
+                    currentSpeaker = "상대방";
+                    lineContent = trimmed.split(':')[1].trim();
+                } else if (isMe) {
+                    currentSpeaker = "나";
+                    lineContent = trimmed.split(':')[1].trim();
+                } else if (trimmed.includes(':') && trimmed.split(':')[0].length <= 5) {
+                    currentSpeaker = trimmed.split(':')[0].trim();
+                    lineContent = trimmed.substring(trimmed.indexOf(':') + 1).trim();
+                }
+                
+                if (!lineContent) return;
 
                 html += `
                     <div class="dialogue-line">
-                        <div class="speaker-bubble ${isOther ? 'speaker-other' : 'speaker-me'}">
-                            <span class="speaker-name">${speakerName}</span>
-                            <span>${content}</span>
+                        <div class="speaker-bubble ${currentSpeaker.includes('나') ? 'speaker-me' : 'speaker-other'}">
+                            <span class="speaker-name">${currentSpeaker}</span>
+                            <span>${lineContent}</span>
                         </div>
                     </div>`;
             });
-            return html || "분석할 수 없는 대화 형식입니다.";
+            return html || `<div style="padding:20px; white-space: pre-wrap; line-height: 1.6; color: var(--text-muted);">${text}</div>`;
         }
 
         function openModal(r) {
             document.getElementById('modal-overlay').style.display = "flex";
-            document.getElementById('modal-content').innerHTML = formatDialogue(r.transcription);
             
+            let audioBtnHtml = "";
+            if (r.original_filename) {
+                audioBtnHtml = `
+                <div style="margin-bottom: 25px; text-align: center; background: rgba(0, 210, 255, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(0, 210, 255, 0.1);">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">원본 파일: ${r.original_filename}</div>
+                    <a href="crm://play_audio?filename=${encodeURIComponent(r.original_filename)}" 
+                       style="display: inline-block; background: var(--accent); color: white; padding: 10px 24px; border-radius: 20px; text-decoration: none; font-weight: 800; box-shadow: 0 4px 12px rgba(0,210,255,0.3); font-size: 0.95rem;">
+                       ▶️ 핸드폰 원본 통화 녹음 재생하기
+                    </a>
+                </div>`;
+            }
+            
+            document.getElementById('modal-content').innerHTML = audioBtnHtml + formatDialogue(r.transcription);
+            
+            // Adjust scroll...
+            const modalContent = document.getElementById('modal-content');
+            modalContent.scrollTop = 0;
             // Push history state so Back button closes modal first
             history.pushState({ modal: true }, "");
         }

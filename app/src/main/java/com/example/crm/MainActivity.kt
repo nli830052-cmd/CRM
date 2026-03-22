@@ -50,6 +50,11 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import android.content.Intent
+import android.provider.MediaStore
+import android.content.ContentUris
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
@@ -253,6 +258,11 @@ class MainActivity : ComponentActivity() {
                         FilterChip(selected = currentTab == "All", onClick = { currentTab = "All" }, label = { Text("전체") })
                         Spacer(Modifier.width(8.dp))
                         FilterChip(selected = currentTab == "Favorites", onClick = { currentTab = "Favorites" }, label = { Text("즐겨찾기 ⭐️") })
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(selected = screenState == "Statistics", onClick = { 
+                            screenState = "Statistics" 
+                            scope.launch { drawerState.close() }
+                        }, label = { Text("통계 📊") })
                     }
                     
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
@@ -413,6 +423,9 @@ class MainActivity : ComponentActivity() {
                                 onBack = { screenState = "Dashboard" }
                             )
                         }
+                        "Statistics" -> {
+                            StatisticsScreen(contactStats = contactStats, onBack = { screenState = "Dashboard" })
+                        }
                     }
                 }
             }
@@ -467,7 +480,19 @@ class MainActivity : ComponentActivity() {
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
-                        webViewClient = WebViewClient()
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val url = request?.url?.toString() ?: ""
+                                if (url.startsWith("crm://play_audio")) {
+                                    val filename = Uri.parse(url).getQueryParameter("filename")
+                                    if (filename != null) {
+                                        playAudioFile(ctx, filename)
+                                    }
+                                    return true
+                                }
+                                return super.shouldOverrideUrlLoading(view, request)
+                            }
+                        }
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         settings.loadWithOverviewMode = true
@@ -479,6 +504,61 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 update = { webView = it }
             )
+        }
+    }
+
+    @Composable
+    fun StatisticsScreen(contactStats: List<Map<String, Any>>, onBack: () -> Unit) {
+        val highFreq = contactStats.filter { (it["frequency"] as? Number)?.toDouble() ?: 0.0 >= 30.0 }
+        val mediumFreq = contactStats.filter { 
+            val f = (it["frequency"] as? Number)?.toDouble() ?: 0.0
+            f in 10.0..29.0 
+        }
+        val lowFreq = contactStats.filter { (it["frequency"] as? Number)?.toDouble() ?: 0.0 < 10.0 }
+        
+        BackHandler { onBack() }
+        
+        Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0B0E11))) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(8.dp)
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Text("연락 빈도 통계 (📊 상/중/하)", style = MaterialTheme.typography.titleLarge, color = Color.White)
+            }
+            
+            LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                item {
+                    Text("총 등록된 연락처: ${contactStats.size} 명", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(16.dp))
+                }
+                item { StatSection("상 (연락 30회 이상 VIP)", highFreq, Color(0xFFFF5252)) }
+                item { StatSection("중 (연락 10회~29회 활성)", mediumFreq, Color(0xFFFFA000)) }
+                item { StatSection("하 (연락 10회 미만 비활성)", lowFreq, Color(0xFF4CAF50)) }
+                item { Spacer(Modifier.height(32.dp)) }
+            }
+        }
+    }
+    
+    @Composable
+    fun StatSection(title: String, list: List<Map<String, Any>>, color: Color) {
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF1E222A))) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("$title - 총 ${list.size}명", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = color)
+                Spacer(Modifier.height(8.dp))
+                list.sortedByDescending { (it["frequency"] as? Number)?.toInt() ?: 0 }
+                    .take(15)
+                    .forEach {
+                        val name = (it["name"]?.toString())?.takeIf { n -> n != "null" && n.isNotBlank() } ?: (it["phone_number"]?.toString() ?: "이름 없음")
+                        val freq = (it["frequency"] as? Number)?.toInt() ?: 0
+                        Text("• $name ($freq 회)", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                    }
+                if (list.size > 15) {
+                    Text("...외 ${list.size - 15}명", style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
         }
     }
 
@@ -538,8 +618,37 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun enqueueSyncWorker(onSync: (Boolean, String?) -> Unit) {
-        val req = OneTimeWorkRequestBuilder<SyncWorker>().addTag("sync").build()
-        WorkManager.getInstance(this).enqueueUniqueWork("sync", androidx.work.ExistingWorkPolicy.REPLACE, req)
+        val req = androidx.work.OneTimeWorkRequestBuilder<com.example.crm.SyncWorker>().addTag("sync").build()
+        androidx.work.WorkManager.getInstance(this).enqueueUniqueWork("sync", androidx.work.ExistingWorkPolicy.REPLACE, req)
         Toast.makeText(this, "백그라운드 동기화 시작!", Toast.LENGTH_SHORT).show()
     }
+
+    private fun playAudioFile(context: Context, filename: String) {
+        try {
+            val projection = arrayOf(MediaStore.Audio.Media._ID)
+            val selection = "${MediaStore.Audio.Media.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(filename)
+            
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection, selection, selectionArgs, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID))
+                    val contentUri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+                    
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(contentUri, "audio/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(intent)
+                    return
+                }
+            }
+            Toast.makeText(context, "핸드폰에서 해당 녹음 파일을 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+        } catch(e: Exception) {
+            Toast.makeText(context, "재생 앱을 열 수 없습니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
+
