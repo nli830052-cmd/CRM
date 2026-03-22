@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
 
     private var pendingSyncAction: (() -> Unit)? = null
     private var mediaPlayer: android.media.MediaPlayer? = null
+    var deepLinkPhoneNumber by mutableStateOf<String?>(null)
 
     override fun onDestroy() {
         super.onDestroy()
@@ -104,18 +105,10 @@ class MainActivity : ComponentActivity() {
         mediaPlayer = null
     }
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        if (permissions.values.all { it }) {
-            Toast.makeText(this, "권한 허가되었습니다.", Toast.LENGTH_SHORT).show()
-            pendingSyncAction?.invoke()
-            pendingSyncAction = null
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setupAccount()
+        handleIntent(intent)
         setContent {
             CRMTheme {
                 AppScreen()
@@ -130,6 +123,20 @@ class MainActivity : ComponentActivity() {
         var selectedContactId by remember { mutableStateOf("") }
         var contactStats by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
         var globalTimeline by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+        
+        val context = LocalContext.current
+        LaunchedEffect(contactStats, deepLinkPhoneNumber) {
+            if (deepLinkPhoneNumber != null && contactStats.isNotEmpty()) {
+                val found = contactStats.find { it["phone_number"]?.toString() == deepLinkPhoneNumber }
+                if (found != null) {
+                    selectedContactId = found["id"]?.toString() ?: ""
+                    screenState = "Detail"
+                } else {
+                    Toast.makeText(context, "클라우드에서 해당 연락처(${deepLinkPhoneNumber})를 찾을 수 없습니다.", Toast.LENGTH_SHORT).show()
+                }
+                deepLinkPhoneNumber = null
+            }
+        }
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
         var searchQuery by remember { mutableStateOf("") }
@@ -167,7 +174,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val context = LocalContext.current
         DisposableEffect(Unit) {
             val liveData = WorkManager.getInstance(context).getWorkInfosByTagLiveData("sync")
             val observer = androidx.lifecycle.Observer<List<WorkInfo>> { workInfos ->
@@ -609,7 +615,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun getRequiredPermissions(): Array<String> {
-        val list = mutableListOf(Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_SMS)
+        val list = mutableListOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_SMS)
         if (android.os.Build.VERSION.SDK_INT >= 33) list.add(Manifest.permission.READ_MEDIA_AUDIO)
         else list.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         return list.toTypedArray()
@@ -630,6 +636,46 @@ class MainActivity : ComponentActivity() {
         val req = androidx.work.OneTimeWorkRequestBuilder<com.example.crm.SyncWorker>().addTag("sync").build()
         androidx.work.WorkManager.getInstance(this).enqueueUniqueWork("sync", androidx.work.ExistingWorkPolicy.REPLACE, req)
         Toast.makeText(this, "백그라운드 동기화 시작!", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW && intent.type == "vnd.android.cursor.item/vnd.com.example.crm.profile") {
+            val uri = intent.data ?: return
+            lifecycleScope.launch {
+                val cursor = contentResolver.query(uri, arrayOf(android.provider.ContactsContract.Data.DATA1), null, null, null)
+                if (cursor?.moveToFirst() == true) {
+                    val phone = cursor.getString(0) ?: ""
+                    if (phone.isNotEmpty()) deepLinkPhoneNumber = phone
+                }
+                cursor?.close()
+            }
+        }
+    }
+
+    // Permission launcher moved down here for clean code structure
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { p ->
+        if (p.all { it.value }) pendingSyncAction?.invoke() else Toast.makeText(this, "권한 허용 불완전", Toast.LENGTH_LONG).show()
+        pendingSyncAction = null
+    }
+
+    private fun setupAccount() {
+        try {
+            val accountManager = android.accounts.AccountManager.get(this)
+            val account = android.accounts.Account("SalesMind CRM 본계정", "com.example.crm.account")
+            val accounts = accountManager.getAccountsByType("com.example.crm.account")
+            if (accounts.isEmpty()) {
+                accountManager.addAccountExplicitly(account, null, null)
+                android.content.ContentResolver.setIsSyncable(account, android.provider.ContactsContract.AUTHORITY, 1)
+                android.content.ContentResolver.setSyncAutomatically(account, android.provider.ContactsContract.AUTHORITY, true)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Account Setup Failed", e)
+        }
     }
 
     private fun playAudioFile(context: Context, filename: String) {

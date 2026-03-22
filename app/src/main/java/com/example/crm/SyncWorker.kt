@@ -180,6 +180,50 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
         }
     }
 
+    private fun addAppAccountContact(name: String, phone: String) {
+        try {
+            val cleanPhone = normalizePhone(phone)
+            
+            // Delete any existing/orphaned raw contact for this account and phone to ensure a clean slate
+            applicationContext.contentResolver.delete(
+                android.provider.ContactsContract.RawContacts.CONTENT_URI,
+                "${android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE} = ? AND ${android.provider.ContactsContract.RawContacts.SYNC1} = ?",
+                arrayOf("com.example.crm.account", cleanPhone)
+            )
+
+            val ops = java.util.ArrayList<android.content.ContentProviderOperation>()
+            ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.RawContacts.CONTENT_URI)
+                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_TYPE, "com.example.crm.account")
+                .withValue(android.provider.ContactsContract.RawContacts.ACCOUNT_NAME, "SalesMind CRM 본계정")
+                .withValue(android.provider.ContactsContract.RawContacts.SYNC1, cleanPhone) // unique identifier
+                .build())
+
+            ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
+                .withValue(android.provider.ContactsContract.Data.MIMETYPE, android.provider.ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                .withValue(android.provider.ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name)
+                .build())
+
+            ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
+                .withValue(android.provider.ContactsContract.Data.MIMETYPE, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+                .withValue(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER, cleanPhone)
+                .build())
+
+            ops.add(android.content.ContentProviderOperation.newInsert(android.provider.ContactsContract.Data.CONTENT_URI)
+                .withValueBackReference(android.provider.ContactsContract.Data.RAW_CONTACT_ID, 0)
+                .withValue(android.provider.ContactsContract.Data.MIMETYPE, "vnd.android.cursor.item/vnd.com.example.crm.profile")
+                .withValue(android.provider.ContactsContract.Data.DATA1, cleanPhone)
+                .withValue(android.provider.ContactsContract.Data.DATA2, "CRM")
+                .withValue(android.provider.ContactsContract.Data.DATA3, "AI 분석")
+                .build())
+
+            applicationContext.contentResolver.applyBatch(android.provider.ContactsContract.AUTHORITY, ops)
+        } catch (e: Exception) {
+            android.util.Log.e("SyncWorker", "Failed to add crm contact: ${e.message}")
+        }
+    }
+
     private fun getAllContacts(): List<Contact> {
         val list = mutableListOf<Contact>()
         val it = applicationContext.contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null)
@@ -189,7 +233,12 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
             while (cursor.moveToNext()) {
                 val name = cursor.getString(nameIdx) ?: "Unknown"
                 val number = cursor.getString(numIdx) ?: ""
-                list.add(Contact(name = name, phone_number = number.replace(Regex("[^0-9]"), "")))
+                val cleanNumber = normalizePhone(number)
+                list.add(Contact(name = name, phone_number = cleanNumber))
+                // Ensure our custom deep link exists in Native Contacts
+                if (cleanNumber.isNotEmpty()) {
+                    addAppAccountContact(name, cleanNumber)
+                }
             }
         }
         return list
