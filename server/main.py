@@ -371,7 +371,7 @@ async def get_ai_summary(contact_id: str, refresh: bool = False, db: Session = D
         if r.summary and "분석 진행 중" not in r.summary:
             history_entries.append(f"[CallAnalysis] {r.timestamp}: {r.summary}")
     
-    history_entries.sort()
+    history_entries.sort(reverse=True)
     
     if not history_entries:
         return {"summary": "아직 대화 기록이 충분하지 않습니다.", "next_action": "기록 대기 중", "status": "empty"}
