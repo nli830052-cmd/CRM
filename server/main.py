@@ -20,20 +20,20 @@ import tempfile
 
 app = FastAPI(title="SalesMind AI CRM API")
 
-# Create tables if they don't exist
-models.Base.metadata.create_all(bind=engine)
-
-# Ensure unique indexes for duplicate prevention (Postgres specific)
-# 참고: 이 작업은 최초 1회만 실행되면 되며 계속 두면 부팅 시간을 잡아먹어 Render가 강제 종료하게 됩니다.
-# 이미 인덱스가 생성되었으므로 부팅 속도를 위해 비활성화합니다.
-try:
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
-        conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS file_hash VARCHAR;"))
-        conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN DEFAULT FALSE;"))
-        conn.commit()
-except Exception as e:
-    print(f"Skipping DB updates: {e}")
+@app.on_event("startup")
+async def startup_db():
+    def init_db():
+        try:
+            models.Base.metadata.create_all(bind=engine)
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
+                conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS file_hash VARCHAR;"))
+                conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN DEFAULT FALSE;"))
+                conn.commit()
+        except Exception as e:
+            print(f"Skipping DB updates: {e}")
+    # Run in background so Render port bind doesn't timeout!
+    asyncio.get_event_loop().run_in_executor(None, init_db)
 
 # Mount static files
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
