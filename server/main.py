@@ -30,6 +30,7 @@ try:
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS original_filename VARCHAR;"))
         conn.execute(text("ALTER TABLE recordings ADD COLUMN IF NOT EXISTS file_hash VARCHAR;"))
+        conn.execute(text("ALTER TABLE contacts ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN DEFAULT FALSE;"))
         conn.commit()
 except Exception as e:
     print(f"Skipping DB updates: {e}")
@@ -194,6 +195,16 @@ def get_contact_by_phone(phone_number: str, db: Session = Depends(get_db)):
     contact = db.query(models.Contact).filter(models.Contact.phone_number == phone_number).first()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
+    return contact
+    
+@app.post("/contacts/{contact_id}/favorite", response_model=schemas.Contact)
+def toggle_favorite(contact_id: str, is_favorite: bool, db: Session = Depends(get_db)):
+    contact = db.query(models.Contact).filter(models.Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    contact.is_favorite = is_favorite
+    db.commit()
+    db.refresh(contact)
     return contact
 
 # --- Call Endpoints ---
@@ -456,12 +467,12 @@ def get_contacts_stats(db: Session = Depends(get_db)):
         # Determine the absolute latest interaction date (Calls, Messages, OR Recordings)
         dates = [d for d in [c_last, m_last, r_last] if d is not None]
         last_date = max(dates) if dates else None
-
         stats.append({
             "id": contact.id,
             "name": contact.name,
             "phone_number": contact.phone_number,
             "organization": contact.organization,
+            "is_favorite": contact.is_favorite,
             "frequency": total_freq,
             "last_contact": last_date.strftime("%Y-%m-%d %H:%M:%S") if last_date else "N/A",
             "last_call_at": c_last.strftime("%Y-%m-%d %H:%M:%S") if c_last else None,

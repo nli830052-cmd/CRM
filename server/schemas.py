@@ -6,6 +6,7 @@ class ContactBase(BaseModel):
     name: str
     phone_number: str
     organization: Optional[str] = None
+    is_favorite: bool = False
 
 class ContactCreate(ContactBase):
     pass

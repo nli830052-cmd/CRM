@@ -58,6 +58,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Person
@@ -120,6 +121,7 @@ class MainActivity : ComponentActivity() {
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
         var searchQuery by remember { mutableStateOf("") }
+        var currentTab by remember { mutableStateOf("All") }
         var showDatePicker by remember { mutableStateOf(false) }
         var selectedDateFilter by remember { mutableStateOf<String?>(null) }
         var isLoadingInitialData by remember { mutableStateOf(true) }
@@ -247,15 +249,30 @@ class MainActivity : ComponentActivity() {
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }
                     )
                     
-                    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 16.dp)) {
-                        val filtered = if (searchQuery.isEmpty()) contactStats else contactStats.filter {
-                             (it["name"]?.toString()?.contains(searchQuery, true) ?: false) || 
-                             (it["phone_number"]?.toString()?.contains(searchQuery) ?: false)
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        FilterChip(selected = currentTab == "All", onClick = { currentTab = "All" }, label = { Text("전체") })
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(selected = currentTab == "Favorites", onClick = { currentTab = "Favorites" }, label = { Text("즐겨찾기 ⭐️") })
+                    }
+                    
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
+                        val filtered = contactStats.filter {
+                             val matchQuery = if (searchQuery.isEmpty()) true else {
+                                 (it["name"]?.toString()?.contains(searchQuery, true) ?: false) || 
+                                 (it["phone_number"]?.toString()?.contains(searchQuery) ?: false)
+                             }
+                             val matchTab = if (currentTab == "Favorites") (it["is_favorite"] as? Boolean == true) else true
+                             matchQuery && matchTab
                         }
                         items(filtered) { item ->
                             ListItem(
                                 headlineContent = { Text(item["name"]?.toString() ?: "?") },
                                 leadingContent = { Icon(Icons.Default.Person, contentDescription = null) },
+                                trailingContent = {
+                                    if (item["is_favorite"] as? Boolean == true) {
+                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color.Yellow)
+                                    }
+                                },
                                 modifier = Modifier.clickable {
                                     selectedContactId = item["id"]?.toString() ?: ""
                                     screenState = "Detail"
@@ -374,7 +391,27 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         "Detail" -> {
-                            AnalysisWebView(selectedContactId) { screenState = "Dashboard" }
+                            val currentContact = contactStats.find { it["id"]?.toString() == selectedContactId }
+                            val isFav = currentContact?.get("is_favorite") as? Boolean ?: false
+                            
+                            AnalysisWebView(
+                                contactId = selectedContactId,
+                                isFavorite = isFav,
+                                onToggleFavorite = { newFav ->
+                                    scope.launch {
+                                        try {
+                                            val res = RetrofitClient.apiService.toggleFavorite(selectedContactId, newFav)
+                                            if (res.isSuccessful) {
+                                                contactStats = contactStats.map { if (it["id"]?.toString() == selectedContactId) it.toMutableMap().apply { put("is_favorite", newFav) } else it }
+                                                Toast.makeText(context, if (newFav) "즐겨찾기에 추가됨" else "즐겨찾기 해제됨", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "오류 발생", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                onBack = { screenState = "Dashboard" }
+                            )
                         }
                     }
                 }
@@ -383,7 +420,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun AnalysisWebView(contactId: String, onBack: () -> Unit) {
+    fun AnalysisWebView(contactId: String, isFavorite: Boolean, onToggleFavorite: (Boolean) -> Unit, onBack: () -> Unit) {
         var webView: WebView? by remember { mutableStateOf(null) }
 
         // Intercept hardware back button
@@ -416,8 +453,16 @@ class MainActivity : ComponentActivity() {
                 Text(
                     "AI 분석 리포트",
                     style = MaterialTheme.typography.titleLarge,
-                    color = Color.White
+                    color = Color.White,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = { onToggleFavorite(!isFavorite) }) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = "Favorite",
+                        tint = if (isFavorite) Color.Yellow else Color.Gray
+                    )
+                }
             }
             AndroidView(
                 factory = { ctx ->

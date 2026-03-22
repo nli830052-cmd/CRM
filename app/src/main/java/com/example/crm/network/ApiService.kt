@@ -28,6 +28,12 @@ interface ApiService {
     @GET("contacts/phone/{phone_number}")
     suspend fun getContactByPhone(@Path("phone_number") phone: String): Response<Contact>
 
+    @POST("contacts/{contact_id}/favorite")
+    suspend fun toggleFavorite(
+        @Path("contact_id") contactId: String,
+        @Query("is_favorite") isFavorite: Boolean
+    ): Response<Contact>
+
     @POST("calls/")
     suspend fun logCall(@Body call: CallRecord): Response<CallRecord>
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 import uuid
 import datetime
@@ -16,6 +16,7 @@ class Contact(Base):
     name = Column(String, index=True)
     phone_number = Column(String, unique=True, index=True)
     organization = Column(String, nullable=True)
+    is_favorite = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     calls = relationship("Call", back_populates="contact")
