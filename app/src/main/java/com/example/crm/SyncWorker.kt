@@ -155,11 +155,16 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
             (entry.value["synced_recordings"] as? List<String>)?.toHashSet() ?: hashSetOf()
         }
 
-        // Filter files that are NOT synced yet
+        // Filter files that are NOT synced yet AND belong to recent contacts
         val unsyncedFiles = files.filter { file ->
             val phone = extractPhoneNumber(file.name) ?: return@filter false
             val cleanPhone = normalizePhone(phone)
-            phoneToSyncedSet[cleanPhone]?.contains(file.name) != true
+            
+            // CRITICAL FIX: Only attempt to sync if the contact had recent activity (within 30 days)
+            // If they are not in our 'phoneToSyncedSet', skip them entirely to avoid gigabytes of old uploads.
+            val syncedSet = phoneToSyncedSet[cleanPhone] ?: return@filter false
+            
+            !syncedSet.contains(file.name)
         }.sortedByDescending { it.lastModified() }
 
         val totalToUpload = unsyncedFiles.size
