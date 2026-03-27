@@ -20,7 +20,10 @@ interface ApiService {
     suspend fun getContactsMap(): Response<List<Map<String, String>>>
 
     @GET("contacts/stats/")
-    suspend fun getContactsStats(): Response<List<Map<String, Any>>>
+    suspend fun getContactsStats(@Query("recent_only") recentOnly: Boolean = false): Response<List<Map<String, Any>>>
+
+    @GET("sync/last_timestamps/")
+    suspend fun getLastSyncTimestamps(): Response<Map<String, String?>>
 
     @GET("timeline/all/")
     suspend fun getGlobalTimeline(): Response<List<Map<String, Any>>>

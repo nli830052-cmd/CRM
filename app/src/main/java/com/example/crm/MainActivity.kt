@@ -615,7 +615,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun getRequiredPermissions(): Array<String> {
-        val list = mutableListOf(Manifest.permission.READ_CONTACTS, Manifest.permission.WRITE_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.READ_SMS)
+        val list = mutableListOf(
+            Manifest.permission.READ_CONTACTS, 
+            Manifest.permission.WRITE_CONTACTS, 
+            Manifest.permission.READ_CALL_LOG, 
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.READ_PHONE_STATE
+        )
         if (android.os.Build.VERSION.SDK_INT >= 33) list.add(Manifest.permission.READ_MEDIA_AUDIO)
         else list.add(Manifest.permission.READ_EXTERNAL_STORAGE)
         return list.toTypedArray()

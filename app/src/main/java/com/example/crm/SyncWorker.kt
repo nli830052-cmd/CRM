@@ -33,86 +33,93 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
     override suspend fun doWork(): ListenableWorker.Result {
         return withContext(Dispatchers.IO) {
             try {
-                setProgress(workDataOf("status" to "서버 정보 대조 중..."))
+                setProgress(workDataOf("status" to "연락처 맵핑 데이터 로드 중..."))
                 
-                // 1. Fetch Server Status
-                val statsResponse = RetrofitClient.apiService.getContactsStats()
-                if (!statsResponse.isSuccessful) return@withContext ListenableWorker.Result.retry()
+                // 1. Fetch Lightweight mapping (Phone -> ID)
+                val mapRes = RetrofitClient.apiService.getContactsMap()
+                if (!mapRes.isSuccessful) return@withContext ListenableWorker.Result.retry()
                 
-                val initialStats = statsResponse.body() ?: emptyList()
-                var phoneToData = initialStats.associateBy(
-                    { stat -> normalizePhone((stat as Map<String, Any>)["phone_number"]?.toString() ?: "") },
-                    { stat -> stat as Map<String, Any> }
-                ).toMutableMap()
+                var phoneToId = mapRes.body()?.associate { 
+                    normalizePhone(it["phone_number"] ?: "") to (it["id"] ?: "")
+                }?.toMutableMap() ?: mutableMapOf()
 
-                // 2. Sync Contacts
-                setProgress(workDataOf("status" to "신규 연락처 동기화 중..."))
+                // 2. Sync Missing Contacts
+                setProgress(workDataOf("status" to "신규 연락처 확인 중..."))
                 val localContacts = getAllContacts()
-                val newContacts = localContacts.filter { 
-                    phoneToData[normalizePhone(it.phone_number)] == null 
+                val missingContacts = localContacts.filter { 
+                    phoneToId[normalizePhone(it.phone_number)] == null 
                 }.map { it.copy(phone_number = normalizePhone(it.phone_number)) }
                 
-                if (newContacts.isNotEmpty()) {
-                    newContacts.chunked(50).forEach { chunk ->
-                        RetrofitClient.apiService.createContactsBulk(chunk)
-                    }
-                    val refreshStats = RetrofitClient.apiService.getContactsStats()
-                    if (refreshStats.isSuccessful) {
-                        phoneToData = (refreshStats.body() ?: emptyList()).associateBy(
-                            { it -> normalizePhone((it as Map<String, Any>)["phone_number"]?.toString() ?: "") }, 
-                            { it -> it as Map<String, Any> }
-                        ).toMutableMap()
+                if (missingContacts.isNotEmpty()) {
+                    setProgress(workDataOf("status" to "신규 연락처 ${missingContacts.size}건 등록 중..."))
+                    missingContacts.chunked(50).forEach { chunk ->
+                        val res = RetrofitClient.apiService.createContactsBulk(chunk)
+                        res.body()?.forEach { phoneToId[normalizePhone(it.phone_number)] = it.id ?: "" }
                     }
                 }
 
-                // 3. Sync Calls
-                setProgress(workDataOf("status" to "최신 통화 기록 분석 중..."))
+                // 3. Get Global Cutoff Timestamps
+                setProgress(workDataOf("status" to "동기화 지점 계산 중..."))
+                val tsRes = RetrofitClient.apiService.getLastSyncTimestamps()
+                val lastTimestamps = tsRes.body() ?: emptyMap()
+                
+                val lastGlobalCall = lastTimestamps["last_call"] 
+                val lastGlobalMsg = lastTimestamps["last_message"]
+
+                // 4. Sync Calls
+                setProgress(workDataOf("status" to "통화 기록 대조 중..."))
                 val allCalls = getAllCallLogs()
-                val newCallRecords = mutableListOf<CallRecord>()
-                allCalls.forEach { call ->
-                    val contactData = phoneToData[normalizePhone(call.first)]
-                    val lastCallOnServer = contactData?.get("last_call_at")?.toString()
-                    val localCallAt = serverDateFormat.format(Date(call.third))
-                    if (contactData != null && (lastCallOnServer == null || localCallAt > lastCallOnServer)) {
-                        newCallRecords.add(CallRecord(
-                            duration = call.second,
-                            timestamp = localCallAt,
-                            contact_id = contactData["id"]?.toString(),
-                            phone_number = call.first,
-                            direction = call.fourth
-                        ))
-                    }
+                val newCallRecords = allCalls.filter { call ->
+                    val localAt = serverDateFormat.format(Date(call.third))
+                    // Only sync if newer than global max OR if we haven't synced for a while (robustness fallback)
+                    val id = phoneToId[normalizePhone(call.first)]
+                    id != null && (lastGlobalCall == null || localAt > lastGlobalCall)
+                }.map { call ->
+                    CallRecord(
+                        duration = call.second,
+                        timestamp = serverDateFormat.format(Date(call.third)),
+                        contact_id = phoneToId[normalizePhone(call.first)],
+                        phone_number = call.first,
+                        direction = call.fourth
+                    )
                 }
+                
                 if (newCallRecords.isNotEmpty()) {
+                    setProgress(workDataOf("status" to "통화 기록 ${newCallRecords.size}건 동기화 중..."))
                     newCallRecords.chunked(100).forEach { RetrofitClient.apiService.logCallsBulk(it) }
                 }
 
-                // 4. Sync SMS
-                setProgress(workDataOf("status" to "새 문자 메시지 동기화 중..."))
+                // 5. Sync SMS
+                setProgress(workDataOf("status" to "문자 메시지 대조 중..."))
                 val allMsgs = getAllSMS()
-                val newMsgRecords = mutableListOf<MessageRecord>()
-                allMsgs.forEach { msg ->
-                    val contactData = phoneToData[normalizePhone(msg.address)]
-                    val lastMsgOnServer = contactData?.get("last_message_at")?.toString()
-                    val localMsgAt = serverDateFormat.format(Date(msg.dateLong))
-                    if (contactData != null && (lastMsgOnServer == null || localMsgAt > lastMsgOnServer)) {
-                        newMsgRecords.add(MessageRecord(
-                            content = msg.body,
-                            timestamp = localMsgAt,
-                            contact_id = contactData["id"]?.toString(),
-                            phone_number = msg.address,
-                            direction = msg.direction
-                        ))
-                    }
+                val newMsgRecords = allMsgs.filter { msg ->
+                    val localAt = serverDateFormat.format(Date(msg.dateLong))
+                    val id = phoneToId[normalizePhone(msg.address)]
+                    id != null && (lastGlobalMsg == null || localAt > lastGlobalMsg)
+                }.map { msg ->
+                    MessageRecord(
+                        content = msg.body,
+                        timestamp = serverDateFormat.format(Date(msg.dateLong)),
+                        contact_id = phoneToId[normalizePhone(msg.address)],
+                        phone_number = msg.address,
+                        direction = msg.direction
+                    )
                 }
+                
                 if (newMsgRecords.isNotEmpty()) {
-                     newMsgRecords.chunked(100).forEach { RetrofitClient.apiService.logMessagesBulk(it) }
+                    setProgress(workDataOf("status" to "메시지 ${newMsgRecords.size}건 동기화 중..."))
+                    newMsgRecords.chunked(100).forEach { RetrofitClient.apiService.logMessagesBulk(it) }
                 }
 
-                // 5. Sync recordings
-                syncRecordings(phoneToData)
+                // 6. Sync recordings (Needs file-specific check, so fetch recent-only stats)
+                setProgress(workDataOf("status" to "최근 녹음 파일 정보 로드..."))
+                val recentStatsRes = RetrofitClient.apiService.getContactsStats(recentOnly = true)
+                val recentStats = recentStatsRes.body() ?: emptyList()
+                val phoneToRecentData = recentStats.associateBy { normalizePhone(it["phone_number"]?.toString() ?: "") }
+                
+                syncRecordings(phoneToRecentData)
 
-                Log.i("SyncWorker", "Background sync completed successfully!")
+                Log.i("SyncWorker", "Optimized sync completed successfully!")
                 ListenableWorker.Result.success()
             } catch (e: Exception) {
                 Log.e("SyncWorker", "Sync failed: ${e.message}")

@@ -85,6 +85,19 @@ def get_global_stats(db: Session = Depends(get_db)):
         "total_recordings": db.query(models.Recording).count()
     }
 
+@app.get("/sync/last_timestamps/")
+def get_last_sync_timestamps(db: Session = Depends(get_db)):
+    """Lite endpoint for the app to decide if global sync is needed."""
+    last_call = db.query(func.max(models.Call.timestamp)).scalar()
+    last_msg = db.query(func.max(models.Message.timestamp)).scalar()
+    last_rec = db.query(func.max(models.Recording.timestamp)).scalar()
+    
+    return {
+        "last_call": last_call.strftime("%Y-%m-%d %H:%M:%S") if last_call else None,
+        "last_message": last_msg.strftime("%Y-%m-%d %H:%M:%S") if last_msg else None,
+        "last_recording": last_rec.strftime("%Y-%m-%d %H:%M:%S") if last_rec else None
+    }
+
 # --- Contact Endpoints ---
 
 @app.post("/contacts/bulk/", response_model=List[schemas.Contact])
@@ -419,34 +432,44 @@ async def get_ai_summary(contact_id: str, refresh: bool = False, db: Session = D
     return summary_result
 
 @app.get("/contacts/stats/", response_model=List[dict])
-def get_contacts_stats(db: Session = Depends(get_db)):
+def get_contacts_stats(recent_only: bool = False, db: Session = Depends(get_db)):
     """
     Returns contacts with interaction counts and last contact dates.
-    Optimized version using SUBQUERIES to prevent N+1 performance issues.
+    'recent_only' flag filters contacts who have had activity in the last 30 days.
     """
     # 1. Summary of calls per contact
-    call_stats = db.query(
+    call_stats_q = db.query(
         models.Call.contact_id,
         func.count(models.Call.id).label("c_count"),
         func.max(models.Call.timestamp).label("c_last")
-    ).group_by(models.Call.contact_id).subquery()
+    ).group_by(models.Call.contact_id)
 
     # 2. Summary of messages per contact
-    msg_stats = db.query(
+    msg_stats_q = db.query(
         models.Message.contact_id,
         func.count(models.Message.id).label("m_count"),
         func.max(models.Message.timestamp).label("m_last")
-    ).group_by(models.Message.contact_id).subquery()
+    ).group_by(models.Message.contact_id)
 
     # 3. Summary of recordings per contact
-    rec_stats = db.query(
+    rec_stats_q = db.query(
         models.Recording.contact_id,
         func.max(models.Recording.timestamp).label("r_last"),
         func.array_agg(models.Recording.original_filename).label("r_files")
-    ).group_by(models.Recording.contact_id).subquery()
+    ).group_by(models.Recording.contact_id)
+
+    if recent_only:
+        threshold = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+        call_stats_q = call_stats_q.filter(models.Call.timestamp >= threshold)
+        msg_stats_q = msg_stats_q.filter(models.Message.timestamp >= threshold)
+        rec_stats_q = rec_stats_q.filter(models.Recording.timestamp >= threshold)
+
+    call_stats = call_stats_q.subquery()
+    msg_stats = msg_stats_q.subquery()
+    rec_stats = rec_stats_q.subquery()
 
     # 4. Final Query joining Contacts with all stats
-    results = db.query(
+    query = db.query(
         models.Contact,
         call_stats.c.c_count,
         call_stats.c.c_last,
@@ -456,15 +479,20 @@ def get_contacts_stats(db: Session = Depends(get_db)):
         rec_stats.c.r_files
     ).outerjoin(call_stats, models.Contact.id == call_stats.c.contact_id) \
      .outerjoin(msg_stats, models.Contact.id == msg_stats.c.contact_id) \
-     .outerjoin(rec_stats, models.Contact.id == rec_stats.c.contact_id) \
-     .all()
+     .outerjoin(rec_stats, models.Contact.id == rec_stats.c.contact_id)
+
+    if recent_only:
+        # If recent only, exclude contacts with no recent activity at all
+        query = query.filter(or_(
+            call_stats.c.c_last.isnot(None),
+            msg_stats.c.m_last.isnot(None),
+            rec_stats.c.r_last.isnot(None)
+        ))
+
+    results = query.all()
 
     stats = []
     for contact, c_cnt, c_last, m_cnt, m_last, r_last, r_files in results:
-        # Calculate derived values
-        total_freq = (c_cnt or 0) + (m_cnt or 0)
-        
-        # Determine the absolute latest interaction date (Calls, Messages, OR Recordings)
         dates = [d for d in [c_last, m_last, r_last] if d is not None]
         last_date = max(dates) if dates else None
         stats.append({
@@ -473,16 +501,14 @@ def get_contacts_stats(db: Session = Depends(get_db)):
             "phone_number": contact.phone_number,
             "organization": contact.organization,
             "is_favorite": contact.is_favorite,
-            "frequency": total_freq,
+            "frequency": (c_cnt or 0) + (m_cnt or 0),
             "last_contact": last_date.strftime("%Y-%m-%d %H:%M:%S") if last_date else "N/A",
             "last_call_at": c_last.strftime("%Y-%m-%d %H:%M:%S") if c_last else None,
             "last_message_at": m_last.strftime("%Y-%m-%d %H:%M:%S") if m_last else None,
             "synced_recordings": r_files or [] 
         })
         
-    # Sort by last_contact descending (Newest first)
     stats.sort(key=lambda x: x["last_contact"] if x["last_contact"] != "N/A" else "", reverse=True)
-    
     return stats
 
 # Limit concurrent AI analysis to avoid rate limits (Stricter: 1 at a time for Free tier)
