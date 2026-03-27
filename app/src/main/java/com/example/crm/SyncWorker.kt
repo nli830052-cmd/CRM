@@ -54,7 +54,12 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                     setProgress(workDataOf("status" to "신규 연락처 ${missingContacts.size}건 등록 중..."))
                     missingContacts.chunked(50).forEach { chunk ->
                         val res = RetrofitClient.apiService.createContactsBulk(chunk)
-                        res.body()?.forEach { phoneToId[normalizePhone(it.phone_number)] = it.id ?: "" }
+                        res.body()?.forEach { 
+                            val cleanNm = normalizePhone(it.phone_number)
+                            phoneToId[cleanNm] = it.id ?: ""
+                            // Only add links for NEWly registered contacts to save CPU
+                            addAppAccountContact(it.name ?: "Scanner", cleanNm)
+                        }
                     }
                 }
 
@@ -251,10 +256,6 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 val number = cursor.getString(numIdx) ?: ""
                 val cleanNumber = normalizePhone(number)
                 list.add(Contact(name = name, phone_number = cleanNumber))
-                // Ensure our custom deep link exists in Native Contacts
-                if (cleanNumber.isNotEmpty()) {
-                    addAppAccountContact(name, cleanNumber)
-                }
             }
         }
         return list
