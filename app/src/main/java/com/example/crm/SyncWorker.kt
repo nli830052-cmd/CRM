@@ -69,9 +69,9 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 // 4. Sync Calls
                 setProgress(workDataOf("status" to "통화 기록 대조 중..."))
                 val allCalls = getAllCallLogs()
+                var syncedCalls = 0
                 val newCallRecords = allCalls.filter { call ->
                     val localAt = serverDateFormat.format(Date(call.third))
-                    // Only sync if newer than global max OR if we haven't synced for a while (robustness fallback)
                     val id = phoneToId[normalizePhone(call.first)]
                     id != null && (lastGlobalCall == null || localAt > lastGlobalCall)
                 }.map { call ->
@@ -86,12 +86,16 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 
                 if (newCallRecords.isNotEmpty()) {
                     setProgress(workDataOf("status" to "통화 기록 ${newCallRecords.size}건 동기화 중..."))
-                    newCallRecords.chunked(100).forEach { RetrofitClient.apiService.logCallsBulk(it) }
+                    newCallRecords.chunked(100).forEach { 
+                        RetrofitClient.apiService.logCallsBulk(it)
+                        syncedCalls += it.size
+                    }
                 }
 
                 // 5. Sync SMS
                 setProgress(workDataOf("status" to "문자 메시지 대조 중..."))
                 val allMsgs = getAllSMS()
+                var syncedMsgs = 0
                 val newMsgRecords = allMsgs.filter { msg ->
                     val localAt = serverDateFormat.format(Date(msg.dateLong))
                     val id = phoneToId[normalizePhone(msg.address)]
@@ -108,10 +112,13 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 
                 if (newMsgRecords.isNotEmpty()) {
                     setProgress(workDataOf("status" to "메시지 ${newMsgRecords.size}건 동기화 중..."))
-                    newMsgRecords.chunked(100).forEach { RetrofitClient.apiService.logMessagesBulk(it) }
+                    newMsgRecords.chunked(100).forEach { 
+                        RetrofitClient.apiService.logMessagesBulk(it)
+                        syncedMsgs += it.size
+                    }
                 }
 
-                // 6. Sync recordings (Needs file-specific check, so fetch recent-only stats)
+                // 6. Sync recordings
                 setProgress(workDataOf("status" to "최근 녹음 파일 정보 로드..."))
                 val recentStatsRes = RetrofitClient.apiService.getContactsStats(recentOnly = true)
                 val recentStats = recentStatsRes.body() ?: emptyList()
@@ -119,7 +126,9 @@ class SyncWorker(appContext: Context, workerParams: WorkerParameters)
                 
                 syncRecordings(phoneToRecentData)
 
-                Log.i("SyncWorker", "Optimized sync completed successfully!")
+                val finalMsg = if (syncedCalls + syncedMsgs > 0) "새 기록 업데이트 완료 (통화 $syncedCalls, 문자 $syncedMsgs)" else "최신 상태임"
+                setProgress(workDataOf("status" to finalMsg))
+                Log.i("SyncWorker", "Optimized sync completed: $finalMsg")
                 ListenableWorker.Result.success()
             } catch (e: Exception) {
                 Log.e("SyncWorker", "Sync failed: ${e.message}")

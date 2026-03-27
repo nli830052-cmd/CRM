@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
         }
         var isSyncing by remember { mutableStateOf(false) }
         var syncProgress by remember { mutableStateOf("준비") }
+        var lastSyncTime by remember { mutableStateOf<String?>(null) }
         var searchQuery by remember { mutableStateOf("") }
         var currentTab by remember { mutableStateOf("All") }
         var showDatePicker by remember { mutableStateOf(false) }
@@ -182,17 +183,24 @@ class MainActivity : ComponentActivity() {
                     when (info.state) {
                         WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING -> {
                             isSyncing = true
-                            syncProgress = info.progress.getString("status") ?: "진행 중..."
+                            syncProgress = info.progress.getString("status") ?: "연결 중..."
                         }
                         WorkInfo.State.SUCCEEDED -> {
                             if (isSyncing) {
                                 isSyncing = false
                                 syncProgress = "완료"
+                                lastSyncTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                                 scope.launch {
                                     val resTimeline = RetrofitClient.apiService.getGlobalTimeline()
                                     if (resTimeline.isSuccessful) globalTimeline = resTimeline.body() ?: emptyList()
+                                    val resStats = RetrofitClient.apiService.getContactsStats()
+                                    if (resStats.isSuccessful) contactStats = resStats.body() ?: emptyList()
                                 }
                             }
+                        }
+                        WorkInfo.State.FAILED -> {
+                            isSyncing = false
+                            syncProgress = "실패 (재시도 필요)"
                         }
                         else -> { isSyncing = false }
                     }
@@ -346,13 +354,23 @@ class MainActivity : ComponentActivity() {
                                 else globalTimeline.filter { it["timestamp"]?.toString()?.startsWith(selectedDateFilter!!) ?: false }
                             
                             Column {
-                                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text(text = if (selectedDateFilter == null) "최근 영업 활동" else "$selectedDateFilter 활동", 
-                                         style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                    if (selectedDateFilter != null) {
-                                        Spacer(Modifier.weight(1f))
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(text = if (selectedDateFilter == null) "최근 영업 활동" else "$selectedDateFilter 활동", 
+                                             style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                                        
+                                        val statusText = if (isSyncing) syncProgress else if (lastSyncTime != null) "최근 업데이트: 오늘 $lastSyncTime" else "동기화 정보 없음"
+                                        Text(statusText, style = MaterialTheme.typography.labelSmall, color = if(isSyncing) MaterialTheme.colorScheme.secondary else Color.Gray)
+                                    }
+                                    if (isSyncing) {
+                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    } else if (selectedDateFilter != null) {
                                         TextButton(onClick = { selectedDateFilter = null }) { Text("전체보기") }
                                     }
+                                }
+                                
+                                if (!isSyncing && lastSyncTime == null) {
+                                    // First time user guide or hint
                                 }
                                 
                                 if (isLoadingInitialData) {
@@ -390,12 +408,20 @@ class MainActivity : ComponentActivity() {
                                             val prevDate = if (prevTS.length >= 10) prevTS.substring(0, 10) else ""
 
                                             if (currentDate != prevDate) {
+                                                val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                                val yesterday = Calendar.getInstance().apply { add(Calendar.DATE, -1) }.let { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(it.time) }
+                                                
+                                                val displayName = when(currentDate) {
+                                                    today -> "오늘 ($currentDate)"
+                                                    yesterday -> "어제 ($currentDate)"
+                                                    else -> currentDate
+                                                }
                                                 Surface(
                                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) {
                                                     Text(
-                                                        text = currentDate,
+                                                        text = displayName,
                                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                                         style = MaterialTheme.typography.labelLarge,
                                                         fontWeight = FontWeight.Bold,
